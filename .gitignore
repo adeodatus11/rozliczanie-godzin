@@ -1,0 +1,9 @@
+node_modules/
+dist/
+# Dane osobowe: raporty, testy na prawdziwych plikach, eksporty z dziennika, pliki rozliczenia
+lokalne/
+*.xlsx
+*.xml
+rozliczenie-godzin*.json
+raport*.md
+.DS_Store

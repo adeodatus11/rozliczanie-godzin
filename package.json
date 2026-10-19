@@ -1,0 +1,17 @@
+{
+  "name": "rozliczanie-godzin",
+  "private": true,
+  "type": "module",
+  "description": "Rozliczanie godzin ponadwymiarowych nauczycieli (art. 35 KN) z eksportów VULCAN — aplikacja w przeglądarce.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:lokalne": "node --test lokalne/*.test.mjs",
+    "wrzesien": "node lokalne/porownaj-wrzesien.mjs",
+    "build": "node build.mjs",
+    "aplikacja": "node build.mjs --do-onedrive"
+  },
+  "devDependencies": {
+    "@xmldom/xmldom": "^0.8.10",
+    "esbuild": "^0.24.2"
+  }
+}

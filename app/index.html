@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Rozliczanie godzin</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #dfe3ea; --line-strong: #c4cad6;
+  --accent: #2456c7; --accent-soft: #e8eefc; --warn: #a15c00; --warn-soft: #fff3dc; --off: #eef0f4; --off-text: #6b7385;
+  --ok-soft: #e7f5ec; --ok: #1d7a43; --dec: #6b3fc4; --dec-soft: #f1ebfd; --danger: #b42318;
+  --radius: 8px; --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171d; --panel: #1c2028; --text: #e6e9ef; --muted: #9aa3b5; --line: #2c323d; --line-strong: #3b4350;
+    --accent: #7ea2ff; --accent-soft: #233050; --warn: #f0b45a; --warn-soft: #3a2c13; --off: #232833; --off-text: #8a93a5;
+    --ok-soft: #173023; --ok: #6fd39a; --dec: #b99bff; --dec-soft: #2c2342; --danger: #ff8a80;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 16px; margin: 0 12px 0 0; }
+header .plik { color: var(--muted); font-size: 13px; }
+header .plik b { color: var(--warn); font-weight: 600; }
+.spacer { flex: 1; }
+button, .btn { font: inherit; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.link { border: 0; background: none; color: var(--accent); padding: 0; text-decoration: underline; }
+button:disabled { opacity: .5; cursor: default; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 8px; }
+input[type=number] { width: 72px; }
+main { padding: 16px; max-width: 1500px; margin: 0 auto; }
+nav.zakladki { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex-wrap: wrap; }
+nav.zakladki button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--muted); }
+nav.zakladki button[aria-current=true] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.pasek { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 12px; }
+.pasek label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+.drop { border: 1.5px dashed var(--line-strong); border-radius: var(--radius); padding: 14px 16px; background: var(--panel); margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.drop.nad { border-color: var(--accent); background: var(--accent-soft); }
+.drop p { margin: 0; color: var(--muted); flex: 1 1 380px; }
+.komunikaty { margin: 0 0 12px; padding: 0; list-style: none; display: grid; gap: 6px; }
+.komunikaty li { padding: 8px 12px; border-radius: 6px; background: var(--ok-soft); border-left: 3px solid var(--ok); }
+.komunikaty li.blad { background: #fde8e6; border-left-color: var(--danger); color: var(--danger); }
+.komunikaty li.uwaga { background: var(--warn-soft); border-left-color: var(--warn); }
+@media (prefers-color-scheme: dark) { .komunikaty li.blad { background: #3a1916; } }
+.tabela { overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); max-height: calc(100vh - 260px); }
+table { border-collapse: separate; border-spacing: 0; width: 100%; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--panel); z-index: 2; font-weight: 600; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line-strong); }
+th:first-child, td:first-child { position: sticky; left: 0; background: var(--panel); text-align: left; z-index: 1; }
+th:first-child { z-index: 3; }
+tbody tr:hover td { background: var(--accent-soft); }
+td.wynik { font-weight: 700; }
+td.sep, th.sep { border-left: 1px solid var(--line-strong); }
+tfoot td { font-weight: 700; border-top: 1px solid var(--line-strong); }
+.dzien { min-width: 72px; cursor: pointer; position: relative; }
+.dzien .g { font-variant-numeric: tabular-nums; font-size: 15px; }
+.dzien .p { display: block; font-size: 11px; color: var(--muted); }
+.dzien.odl { background: var(--off); color: var(--off-text); font-size: 12px; }
+.dzien.inny { color: var(--off-text); cursor: default; }
+.dzien.brak { color: var(--off-text); }
+.komunikaty li.zamknij { background: none; border: 0; padding: 0 12px; text-align: right; }
+.dzien.wyj { background: var(--warn-soft); box-shadow: inset 0 0 0 1px var(--warn); }
+.dzien.kor { background: var(--dec-soft); box-shadow: inset 0 0 0 1px var(--dec); }
+.dzien .znak { position: absolute; top: 2px; left: 4px; font-size: 10px; color: var(--warn); }
+.dzien.kor .znak { color: var(--dec); }
+th.dzienNag { cursor: pointer; }
+th.dzienNag:hover { color: var(--accent); }
+.legenda { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+.legenda span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -2px; }
+.legenda .l-wyj::before { background: var(--warn-soft); box-shadow: inset 0 0 0 1px var(--warn); }
+.legenda .l-kor::before { background: var(--dec-soft); box-shadow: inset 0 0 0 1px var(--dec); }
+.legenda .l-odl::before { background: var(--off); }
+.nazwa small { display: block; color: var(--muted); font-size: 11px; }
+.pusto { padding: 40px; text-align: center; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+dialog { border: 1px solid var(--line-strong); border-radius: 12px; padding: 0; width: min(640px, calc(100vw - 32px)); background: var(--panel); color: var(--text); }
+dialog::backdrop { background: rgb(0 0 0 / .35); }
+dialog form { padding: 18px 20px; display: grid; gap: 12px; }
+dialog h2 { margin: 0; font-size: 17px; }
+dialog dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+dialog dt { color: var(--muted); }
+dialog dd { margin: 0; }
+.podpowiedz { background: var(--warn-soft); border-radius: 8px; padding: 8px 12px; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; margin: 0; }
+fieldset legend { color: var(--muted); padding: 0 4px; }
+fieldset label { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+fieldset select { max-width: 100%; min-width: 0; flex: 1 1 220px; }
+.przyciski { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.przyciski .lewo { margin-right: auto; }
+.uwagaMala { font-size: 12px; color: var(--muted); margin: 0; }
+.konf td { text-align: left; }
+.konf input[type=text] { width: 100%; min-width: 160px; }
+.konf .dni label { margin-right: 4px; font-size: 12px; }
+.konf .dzienne input { width: 52px; }
+@media (max-width: 700px) { main { padding: 8px; } header h1 { width: 100%; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rozliczanie godzin ponadwymiarowych</h1>
+  <span class="plik" id="plik"></span>
+  <span class="spacer"></span>
+  <button type="button" data-akcja="nowy">Nowe</button>
+  <button type="button" data-akcja="otworz">Otwórz rozliczenie…</button>
+  <button type="button" class="primary" data-akcja="zapisz">Zapisz</button>
+</header>
+<main id="app"></main>
+<dialog id="dialog"></dialog>
+<input type="file" id="wyborPlikow" multiple accept=".xlsx,.xml,.json" hidden>
+<input type="file" id="wyborStanu" accept=".json" hidden>
+<script type="module" src="app.mjs"></script>
+</body>
+</html>
