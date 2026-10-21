@@ -212,9 +212,39 @@ function dobierzEksporty(kawalki) {
   k.forEach((x, i) => {
     let poprzedni = pusty;
     for (let j = 0; j < i; j++) if (k[j].do < x.od && lepszy(najlepszy[j], poprzedni)) poprzedni = najlepszy[j];
-    najlepszy[i] = { dni: poprzedni.dni + liczbaDni(x.od, x.do), ile: poprzedni.ile + 1, lista: [...poprzedni.lista, x] };
+    najlepszy[i] = { dni: poprzedni.dni + liczbaDni(x.od, x.do), ile: poprzedni.ile + x.waga, lista: [...poprzedni.lista, x] };
   });
   return najlepszy.reduce((a, b) => (lepszy(b, a) ? b : a), pusty).lista;
+}
+
+/**
+ * Sumy są addytywne, więc eksport dłuższy minus krótszy o tym samym początku
+ * albo końcu to okres różnicy: 01.09–21.10 minus 01.09–30.09 = 01.10–21.10.
+ * Ujemna liczba znaczy, że dane zmieniły się między eksportami (np. później
+ * usprawiedliwiono nieobecność) — taka para trafia do niespojne, nie do wyniku.
+ * Różnica ma wagę 2: przy tych samych dniach wygrywa prawdziwy eksport.
+ */
+function roznice(eksporty, niespojne) {
+  const out = [];
+  const klucz = (w) => `${w.przedmiot}|${w.etykieta}|${w.razem ? 1 : 0}`;
+  for (const a of eksporty)
+    for (const b of eksporty) {
+      if (a === b || a.od > b.od || b.do > a.do || (a.od === b.od && a.do === b.do)) continue;
+      const [od, doDnia] = a.od === b.od ? [dodajDni(b.do, 1), a.do] : a.do === b.do ? [a.od, dodajDni(b.od, -1)] : [];
+      if (!od) continue;
+      const n = new Map();
+      for (const w of a.wpisy) n.set(klucz(w), { ...w, n: (n.get(klucz(w))?.n ?? 0) + w.n });
+      for (const w of b.wpisy) n.set(klucz(w), { ...(n.get(klucz(w)) ?? w), n: (n.get(klucz(w))?.n ?? 0) - w.n });
+      const zrodlo = `${a.zrodlo} − ${b.zrodlo}`;
+      if ([...n.values()].some((w) => w.n < 0)) {
+        niespojne.push({ zrodlo, od, do: doDnia });
+        continue;
+      }
+      const okres = { od, do: doDnia };
+      const wpisy = [...n.values()].filter((w) => w.n > 0).map((w) => ({ ...w, zrodlo, okres, ...(w.razem && { procentVulcan: null }) }));
+      out.push({ zrodlo, ...okres, waga: 2, roznica: true, wpisy });
+    }
+  return out;
 }
 
 /** Sąsiadujące okresy (także przez weekend) łączy w jeden. */
@@ -245,7 +275,7 @@ function luki(od, doDnia, okresy) {
  *  frekwencja                  — obecności / zajęcia × 100,
  *  procentNieusprawiedliwionych — godziny nieusprawiedliwione / zajęcia × 100.
  * Wpisy z datą liczą się, gdy data jest w okresie. Zestawienia VULCAN (stały
- * okres eksportu) dobiera dobierzEksporty; wynik podaje okresy, które naprawdę
+ * okres eksportu, także różnice eksportów) dobiera dobierzEksporty; wynik podaje okresy, które naprawdę
  * objął (okresy), dni bez danych (luki) i eksporty wystające poza wybrane daty
  * (poza). Gdy plik ma sumę ucznia („Wszystkie wpisy”), wynik jest z niej,
  * a przedmioty służą do rozbicia.
@@ -253,12 +283,16 @@ function luki(od, doDnia, okresy) {
 export function frekwencjaUcznia(wpisy, klucz, { od, do: doDnia }, rodzaje) {
   const wZakresie = (a, b) => (!od || a >= od) && (!doDnia || b <= doDnia);
   const ucznia = wpisy.filter((w) => kluczUcznia(w) === klucz);
-  const kluczEksportu = (o) => `${o.zrodlo}|${o.od}|${o.do}`;
   const eksporty = new Map();
-  for (const w of ucznia) if (!w.data && w.okres) eksporty.set(kluczEksportu({ zrodlo: w.zrodlo, ...w.okres }), { zrodlo: w.zrodlo, ...w.okres });
-  const pasujace = [...eksporty.values()].filter((o) => wZakresie(o.od, o.do));
-  const wybrane = new Set(dobierzEksporty(pasujace).map(kluczEksportu));
-  const wOkresie = ucznia.filter((w) => (w.data ? wZakresie(w.data, w.data) : w.okres ? wybrane.has(kluczEksportu({ zrodlo: w.zrodlo, ...w.okres })) : true));
+  for (const w of ucznia)
+    if (!w.data && w.okres) {
+      const k = `${w.zrodlo}|${w.okres.od}|${w.okres.do}`;
+      (eksporty.get(k) ?? eksporty.set(k, { zrodlo: w.zrodlo, ...w.okres, waga: 1, wpisy: [] }).get(k)).wpisy.push(w);
+    }
+  const niespojne = [];
+  const kawalki = [...eksporty.values(), ...roznice([...eksporty.values()], niespojne)];
+  const wybrane = dobierzEksporty(kawalki.filter((o) => wZakresie(o.od, o.do)));
+  const wOkresie = [...ucznia.filter((w) => (w.data ? wZakresie(w.data, w.data) : !w.okres)), ...wybrane.flatMap((o) => o.wpisy)];
 
   const zrodla = new Map();
   for (const w of wOkresie) (zrodla.get(w.zrodlo) ?? zrodla.set(w.zrodlo, []).get(w.zrodlo)).push(w);
@@ -275,7 +309,7 @@ export function frekwencjaUcznia(wpisy, klucz, { od, do: doDnia }, rodzaje) {
   }
 
   const tylkoOkresy = wOkresie.length > 0 && wOkresie.every((w) => !w.data && w.okres);
-  const okresy = scalOkresy(pasujace.filter((o) => wybrane.has(kluczEksportu(o))));
+  const okresy = scalOkresy(wybrane);
   const vulcan = [...new Set(doSumy.filter((w) => w.razem).map((w) => w.procentVulcan))];
   return {
     ...wynik,
@@ -283,7 +317,9 @@ export function frekwencjaUcznia(wpisy, klucz, { od, do: doDnia }, rodzaje) {
     dane: zakresDat(wOkresie),
     okresy,
     luki: eksporty.size && od && doDnia ? luki(od, doDnia, okresy) : [],
-    poza: [...eksporty.values()].filter((o) => !wZakresie(o.od, o.do) && (!doDnia || o.od <= doDnia) && (!od || o.do >= od)),
+    eksporty: wybrane.map(({ zrodlo, od, do: d, roznica }) => ({ zrodlo, od, do: d, roznica: Boolean(roznica) })),
+    poza: [...eksporty.values()].filter((o) => !wZakresie(o.od, o.do) && (!doDnia || o.od <= doDnia) && (!od || o.do >= od)).map(({ zrodlo, od, do: d }) => ({ zrodlo, od, do: d })),
+    niespojne: niespojne.filter((o) => wZakresie(o.od, o.do)),
     tylkoOkresy,
     bezDat: wOkresie.some((w) => !w.data && !w.okres),
     procentVulcan: zrodla.size === 1 && vulcan.length === 1 ? vulcan[0] : null,

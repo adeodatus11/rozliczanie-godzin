@@ -16,6 +16,7 @@ const slownie = (iso) => `${Number(iso.slice(8, 10))} ${MIESIACA[Number(iso.slic
 const dmr = (iso) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}` : "");
 const pr = (x) => (x == null ? "—" : `${x.toFixed(2).replace(".", ",")}%`);
 const liczba = (x) => String(Math.round(x * 100) / 100).replace(".", ",");
+const dodajDzien = (iso, n) => new Date(Date.parse(iso + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
 const dzis = () => new Date().toLocaleDateString("sv-SE");
 const ostatniDzien = (m) => `${m}-${String(new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5)), 0)).getUTCDate()).padStart(2, "0")}`;
 
@@ -108,7 +109,7 @@ function render() {
   const otworzKolumny = pliki.some((p) => !p.tabela.uklad);
   $("#app").innerHTML = `
     <div class="drop" id="drop">
-      <p><b>Wgraj eksport frekwencji z dziennika</b> (przeciągnij tutaj albo wybierz): <i>ZestawienieFrekwencjeNaLekcjachPrzedmiotow</i> z VULCAN. Ma ono same sumy za „Badany okres”, więc okres zaświadczenia składa się z wgranych eksportów — wgraj eksporty miesięczne (wrzesień, październik…), a wybierzesz dowolny zakres miesięcy, albo eksport dokładnie za okres zaświadczenia. Działa też XLSX, CSV albo HTML z kolumnami uczeń, data i wpis frekwencji (jeden wiersz = jedna lekcja). Kilka plików (np. po jednym na oddział) łączy się; ten sam plik wgrany drugi raz zastępuje poprzedni.</p>
+      <p><b>Wgraj eksport frekwencji z dziennika</b> (przeciągnij tutaj albo wybierz): <i>ZestawienieFrekwencjeNaLekcjachPrzedmiotow</i> z VULCAN. Ma ono same sumy za „Badany okres”, więc okres zaświadczenia składa się z wgranych eksportów i ich różnic: np. eksport 01.09–21.10 i eksport za wrzesień dają też 01.10–21.10. Najwygodniej: eksporty od 1 września do końca każdego miesiąca albo eksporty miesięczne. Działa też XLSX, CSV albo HTML z kolumnami uczeń, data i wpis frekwencji (jeden wiersz = jedna lekcja). Kilka plików (np. po jednym na oddział) łączy się; ten sam plik wgrany drugi raz zastępuje poprzedni.</p>
       <button type="button" data-akcja="wybierz">Wybierz pliki…</button>
       ${pliki.length ? `<button type="button" data-akcja="wyczysc">Usuń wczytane dane</button>` : ""}
     </div>
@@ -146,10 +147,19 @@ function render() {
 function presety() {
   const z = zakresDat(wpisy);
   if (!z) return `<span class="uwagaMala">Plik nie zawiera dat — wynik obejmuje okres, za który zrobiono eksport.</span>`;
-  const okresy = [...new Set(wpisy.filter((w) => w.okres).map((w) => `${w.okres.od}|${w.okres.do}`))].sort().map((k) => k.split("|"));
+  const eksporty = [...new Set(wpisy.filter((w) => w.okres).map((w) => `${w.okres.od}|${w.okres.do}`))].map((k) => k.split("|"));
+  // różnice eksportów o wspólnym początku albo końcu (jak w frekwencjaUcznia)
+  const roznice = eksporty.flatMap(([aOd, aDo]) =>
+    eksporty.flatMap(([bOd, bDo]) => {
+      if (aOd > bOd || bDo > aDo || (aOd === bOd && aDo === bDo)) return [];
+      if (aOd === bOd) return [[dodajDzien(bDo, 1), aDo]];
+      return aDo === bDo ? [[aOd, dodajDzien(bOd, -1)]] : [];
+    }),
+  );
+  const okresy = [...new Set([...eksporty, ...roznice].map((o) => o.join("|")))].sort().map((k) => k.split("|"));
   const miesiace = [...new Set(wpisy.map((w) => w.data?.slice(0, 7)).filter(Boolean))].sort();
   return `<button type="button" class="maly" data-od="${z.od}" data-do="${z.do}">wszystkie dane</button>${okresy
-    .map(([od, d]) => `<button type="button" class="maly" data-od="${od}" data-do="${d}">eksport ${dmr(od)}–${dmr(d)}</button>`)
+    .map(([od, d]) => `<button type="button" class="maly" data-od="${od}" data-do="${d}">${dmr(od)}–${dmr(d)}</button>`)
     .join("")}${miesiace
     .map((m) => `<button type="button" class="maly" data-od="${m}-01" data-do="${ostatniDzien(m)}">${MIESIACE[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</button>`)
     .join("")}`;
@@ -210,11 +220,13 @@ function renderWyniku() {
   if (z && !vulcan && ui.od < z.od) uwagi.push(["uwaga", `Dane w plikach zaczynają się ${dmr(z.od)} — wcześniejsze dni nie są uwzględnione.`]);
   if (f.nieprzypisane) uwagi.push(["uwaga", `${liczba(f.nieprzypisane)} wpisów bez przypisanego rodzaju (${f.nieprzypisaneEtykiety.join(", ")}) nie jest liczonych — ustaw je w „Jak liczone są wpisy”.`]);
   if (f.bezDat) uwagi.push(["uwaga", "Część danych nie ma dat — liczą się za cały okres eksportu, bez względu na wybrane daty."]);
-  if (f.luki.length || f.poza.length)
+  for (const o of f.niespojne)
+    uwagi.push(["uwaga", `Eksportów ${o.zrodlo} nie da się odjąć (okres ${okresyTekst([o])}): dane w dzienniku zmieniły się między eksportami. Zrób oba eksporty jeszcze raz, tego samego dnia.`]);
+  if (f.luki.length)
     uwagi.push([
       f.zajecia ? "uwaga" : "blad",
       [
-        "Zestawienie VULCAN ma tylko sumy za cały „Badany okres” — nie da się z niego wyciąć części.",
+        "Zestawienie VULCAN ma tylko sumy za cały „Badany okres” — część okresu da się policzyć tylko z innego eksportu albo z różnicy dwóch eksportów o wspólnym początku lub końcu.",
         f.luki.length ? `Brak danych za: ${okresyTekst(f.luki)}.` : "",
         f.poza.length ? `Eksport ${okresyTekst(f.poza)} wychodzi poza wybrane daty, więc nie jest liczony.` : "",
         `Zaświadczenie obejmie ${f.okresy.length ? `tylko: ${okresyTekst(f.okresy)}` : "0 dni"}.`,
@@ -230,7 +242,7 @@ function renderWyniku() {
       <div class="kafel"><div class="l">Nieobecności usprawiedliwione</div><div class="v">${liczba(f.usprawiedliwiona)} h <small>${pr(f.procentUsprawiedliwionych)}</small></div></div>
       <div class="kafel"><div class="l">Zajęcia (obecności)</div><div class="v">${liczba(f.zajecia)} <small>(${liczba(f.obecny)})</small></div></div>
     </div>
-    <p class="uwagaMala">${f.procentVulcan != null && f.frekwencja === f.procentVulcan ? `<b style="color:var(--ok)">✓ zgodne z „% frekwencji” w zestawieniu VULCAN.</b> ` : ""}${f.tylkoOkresy ? `Okres z eksportów: ${okresyTekst(f.okresy)}.` : f.dane ? `Wpisy ucznia w okresie: ${dmr(f.dane.od)}–${dmr(f.dane.do)}.` : ""} Procent nieobecności = godziny ÷ wszystkie zajęcia z wpisem frekwencji × 100.${f.pomin ? ` Poza rachunkiem („nie liczyć”): ${liczba(f.pomin)}.` : ""}</p>
+    <p class="uwagaMala">${f.procentVulcan != null && f.frekwencja === f.procentVulcan ? `<b style="color:var(--ok)">✓ zgodne z „% frekwencji” w zestawieniu VULCAN.</b> ` : ""}${f.tylkoOkresy ? `Okres z eksportów: ${f.eksporty.map((o) => `${dmr(o.od)}–${dmr(o.do)} (${o.roznica ? `różnica: ${h(o.zrodlo)}` : h(o.zrodlo)})`).join(", ")}.` : f.dane ? `Wpisy ucznia w okresie: ${dmr(f.dane.od)}–${dmr(f.dane.do)}.` : ""} Procent nieobecności = godziny ÷ wszystkie zajęcia z wpisem frekwencji × 100.${f.pomin ? ` Poza rachunkiem („nie liczyć”): ${liczba(f.pomin)}.` : ""}</p>
     ${f.przedmioty.length ? `<details><summary>Z podziałem na przedmioty (${f.przedmioty.length})</summary>${tabelaPrzedmiotow(f)}</details>` : ""}`;
   druk.innerHTML = zaswiadczenie(u, f);
   dopasujNaglowek(druk);

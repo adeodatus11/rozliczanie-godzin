@@ -220,3 +220,36 @@ test("okres zaświadczenia składa się z eksportów miesięcznych, bez podwójn
   assert.deepEqual(zLuka.okresy, [{ od: "2026-09-01", do: "2026-09-30" }, { od: "2026-11-02", do: "2026-11-30" }]);
   assert.deepEqual(zLuka.luki, [{ od: "2026-10-01", do: "2026-11-01" }]);
 });
+
+test("różnica eksportów o wspólnym początku daje okres pośrodku; niespójna różnica jest zgłaszana", () => {
+  const wczytaj = (plik, opis, mnoznik = 1) => {
+    const arkusze = zestawienie(opis);
+    const t = rozpoznajMacierz(arkusze["Frekwencja oddziałów"]);
+    const { okres } = parametryZestawienia(arkusze);
+    return czytajMacierz(arkusze["Frekwencja oddziałów"], t).map((w) => ({ ...w, n: w.n * mnoznik, zrodlo: plik, okres }));
+  };
+  const narastajaco = wczytaj("do-21-10.xlsx", "01.09.2026 - 21.10.2026", 2);
+  const wrzesien = wczytaj("wrzesien.xlsx", "01.09.2026 - 30.09.2026");
+  const rodzaje = domyslneRodzaje([...new Set(wrzesien.map((w) => w.etykieta))], "wpisy", ["p"]);
+  const ucz = "Testowy Adam|1A (T)";
+
+  const pazdziernik = frekwencjaUcznia([...narastajaco, ...wrzesien], ucz, { od: "2026-10-01", do: "2026-10-21" }, rodzaje);
+  assert.equal(pazdziernik.zajecia, 17); // 34 − 17
+  assert.equal(pazdziernik.frekwencja, 70.59);
+  assert.equal(pazdziernik.procentVulcan, null);
+  assert.deepEqual(pazdziernik.okresy, [{ od: "2026-10-01", do: "2026-10-21" }]);
+  assert.deepEqual(pazdziernik.eksporty, [{ zrodlo: "do-21-10.xlsx − wrzesien.xlsx", od: "2026-10-01", do: "2026-10-21", roznica: true }]);
+  assert.deepEqual(pazdziernik.przedmioty.map((p) => [p.przedmiot, p.zajecia]), [["Historia", 6], ["Matematyka", 10], ["inne wpisy (poza listą przedmiotów)", 1]]);
+  assert.deepEqual(pazdziernik.luki, []);
+
+  // cały okres: prawdziwy eksport, nie wrzesień + różnica
+  const calosc = frekwencjaUcznia([...narastajaco, ...wrzesien], ucz, { od: "2026-09-01", do: "2026-10-21" }, rodzaje);
+  assert.equal(calosc.zajecia, 34);
+  assert.deepEqual(calosc.eksporty.map((o) => o.zrodlo), ["do-21-10.xlsx"]);
+
+  // wrzesień zrobiony później, z innymi liczbami niż narastający — różnica ujemna
+  const zmieniony = wczytaj("wrzesien-pozniej.xlsx", "01.09.2026 - 30.09.2026", 3);
+  const zle = frekwencjaUcznia([...narastajaco, ...zmieniony], ucz, { od: "2026-10-01", do: "2026-10-21" }, rodzaje);
+  assert.equal(zle.zajecia, 0);
+  assert.deepEqual(zle.niespojne, [{ zrodlo: "do-21-10.xlsx − wrzesien-pozniej.xlsx", od: "2026-10-01", do: "2026-10-21" }]);
+});
