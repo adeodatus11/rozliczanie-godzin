@@ -185,20 +185,114 @@ function wskazniki(s) {
   return s;
 }
 
+const dodajDni = (iso, n) => {
+  const d = new Date(iso + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const liczbaDni = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5) + 1;
+/** Luka bez dni od poniedziałku do piątku (sam weekend) nie przerywa okresu. */
+function tylkoWeekend(a, b) {
+  for (let d = a; d <= b; d = dodajDni(d, 1)) if (![0, 6].includes(new Date(d + "T12:00:00Z").getUTCDay())) return false;
+  return true;
+}
+const lepszy = (a, b) => a.dni > b.dni || (a.dni === b.dni && a.ile < b.ile);
+
+/**
+ * Zestawienie VULCAN ma stały okres i same sumy — nie da się go pociąć na dni.
+ * Z eksportów ucznia mieszczących się w wybranym okresie bierze niezachodzące
+ * na siebie, pokrywające najwięcej dni (przy remisie: mniej plików). Dzięki temu
+ * eksporty miesięczne składają się w dowolny zakres miesięcy, a eksport za
+ * całość obok miesięcznych nie liczy się podwójnie.
+ */
+function dobierzEksporty(kawalki) {
+  const k = [...kawalki].sort((a, b) => a.od.localeCompare(b.od) || a.do.localeCompare(b.do));
+  const pusty = { dni: 0, ile: 0, lista: [] };
+  const najlepszy = [];
+  k.forEach((x, i) => {
+    let poprzedni = pusty;
+    for (let j = 0; j < i; j++) if (k[j].do < x.od && lepszy(najlepszy[j], poprzedni)) poprzedni = najlepszy[j];
+    najlepszy[i] = { dni: poprzedni.dni + liczbaDni(x.od, x.do), ile: poprzedni.ile + x.waga, lista: [...poprzedni.lista, x] };
+  });
+  return najlepszy.reduce((a, b) => (lepszy(b, a) ? b : a), pusty).lista;
+}
+
+/**
+ * Sumy są addytywne, więc eksport dłuższy minus krótszy o tym samym początku
+ * albo końcu to okres różnicy: 01.09–21.10 minus 01.09–30.09 = 01.10–21.10.
+ * Ujemna liczba znaczy, że dane zmieniły się między eksportami (np. później
+ * usprawiedliwiono nieobecność) — taka para trafia do niespojne, nie do wyniku.
+ * Różnica ma wagę 2: przy tych samych dniach wygrywa prawdziwy eksport.
+ */
+function roznice(eksporty, niespojne) {
+  const out = [];
+  const klucz = (w) => `${w.przedmiot}|${w.etykieta}|${w.razem ? 1 : 0}`;
+  for (const a of eksporty)
+    for (const b of eksporty) {
+      if (a === b || a.od > b.od || b.do > a.do || (a.od === b.od && a.do === b.do)) continue;
+      const [od, doDnia] = a.od === b.od ? [dodajDni(b.do, 1), a.do] : a.do === b.do ? [a.od, dodajDni(b.od, -1)] : [];
+      if (!od) continue;
+      const n = new Map();
+      for (const w of a.wpisy) n.set(klucz(w), { ...w, n: (n.get(klucz(w))?.n ?? 0) + w.n });
+      for (const w of b.wpisy) n.set(klucz(w), { ...(n.get(klucz(w)) ?? w), n: (n.get(klucz(w))?.n ?? 0) - w.n });
+      const zrodlo = `${a.zrodlo} − ${b.zrodlo}`;
+      if ([...n.values()].some((w) => w.n < 0)) {
+        niespojne.push({ zrodlo, od, do: doDnia });
+        continue;
+      }
+      const okres = { od, do: doDnia };
+      const wpisy = [...n.values()].filter((w) => w.n > 0).map((w) => ({ ...w, zrodlo, okres, ...(w.razem && { procentVulcan: null }) }));
+      out.push({ zrodlo, ...okres, waga: 2, roznica: true, wpisy });
+    }
+  return out;
+}
+
+/** Sąsiadujące okresy (także przez weekend) łączy w jeden. */
+function scalOkresy(okresy) {
+  const out = [];
+  for (const o of [...okresy].sort((a, b) => a.od.localeCompare(b.od))) {
+    const ost = out.at(-1);
+    if (ost && (o.od <= dodajDni(ost.do, 1) || tylkoWeekend(dodajDni(ost.do, 1), dodajDni(o.od, -1)))) ost.do = o.do > ost.do ? o.do : ost.do;
+    else out.push({ od: o.od, do: o.do });
+  }
+  return out;
+}
+
+/** Dni robocze z [od, do] nieobjęte okresami, jako przedziały. */
+function luki(od, doDnia, okresy) {
+  const out = [];
+  let d = od;
+  for (const o of okresy) {
+    if (o.od > d && !tylkoWeekend(d, dodajDni(o.od, -1))) out.push({ od: d, do: dodajDni(o.od, -1) });
+    if (o.do >= d) d = dodajDni(o.do, 1);
+  }
+  if (d <= doDnia && !tylkoWeekend(d, doDnia)) out.push({ od: d, do: doDnia });
+  return out;
+}
+
 /**
  * Frekwencja ucznia ze wszystkich przedmiotów w okresie [od, do] (włącznie).
  *  frekwencja                  — obecności / zajęcia × 100,
  *  procentNieusprawiedliwionych — godziny nieusprawiedliwione / zajęcia × 100.
- * Wpisy z datą liczą się, gdy data jest w okresie. Zestawienie VULCAN ma stały
- * okres eksportu: liczy się tylko, gdy cały mieści się w wybranym okresie
- * (inaczej trafia do okresyPoza). Gdy plik ma sumę ucznia („Wszystkie wpisy”),
- * wynik jest z niej, a przedmioty służą do rozbicia.
+ * Wpisy z datą liczą się, gdy data jest w okresie. Zestawienia VULCAN (stały
+ * okres eksportu, także różnice eksportów) dobiera dobierzEksporty; wynik podaje okresy, które naprawdę
+ * objął (okresy), dni bez danych (luki) i eksporty wystające poza wybrane daty
+ * (poza). Gdy plik ma sumę ucznia („Wszystkie wpisy”), wynik jest z niej,
+ * a przedmioty służą do rozbicia.
  */
 export function frekwencjaUcznia(wpisy, klucz, { od, do: doDnia }, rodzaje) {
   const wZakresie = (a, b) => (!od || a >= od) && (!doDnia || b <= doDnia);
   const ucznia = wpisy.filter((w) => kluczUcznia(w) === klucz);
-  const wOkresie = ucznia.filter((w) => (w.data ? wZakresie(w.data, w.data) : w.okres ? wZakresie(w.okres.od, w.okres.do) : true));
-  const okresy = (ws) => [...new Map(ws.filter((w) => !w.data && w.okres).map((w) => [`${w.okres.od}|${w.okres.do}`, w.okres])).values()].sort((a, b) => a.od.localeCompare(b.od));
+  const eksporty = new Map();
+  for (const w of ucznia)
+    if (!w.data && w.okres) {
+      const k = `${w.zrodlo}|${w.okres.od}|${w.okres.do}`;
+      (eksporty.get(k) ?? eksporty.set(k, { zrodlo: w.zrodlo, ...w.okres, waga: 1, wpisy: [] }).get(k)).wpisy.push(w);
+    }
+  const niespojne = [];
+  const kawalki = [...eksporty.values(), ...roznice([...eksporty.values()], niespojne)];
+  const wybrane = dobierzEksporty(kawalki.filter((o) => wZakresie(o.od, o.do)));
+  const wOkresie = [...ucznia.filter((w) => (w.data ? wZakresie(w.data, w.data) : !w.okres)), ...wybrane.flatMap((o) => o.wpisy)];
 
   const zrodla = new Map();
   for (const w of wOkresie) (zrodla.get(w.zrodlo) ?? zrodla.set(w.zrodlo, []).get(w.zrodlo)).push(w);
@@ -214,27 +308,23 @@ export function frekwencjaUcznia(wpisy, klucz, { od, do: doDnia }, rodzaje) {
     if (POLA.some((k) => reszta[k] > 0)) przedmioty.push({ przedmiot: "inne wpisy (poza listą przedmiotów)", ...wskazniki(reszta) });
   }
 
-  const uzyteOkresy = okresy(wOkresie);
+  const tylkoOkresy = wOkresie.length > 0 && wOkresie.every((w) => !w.data && w.okres);
+  const okresy = scalOkresy(wybrane);
   const vulcan = [...new Set(doSumy.filter((w) => w.razem).map((w) => w.procentVulcan))];
   return {
     ...wynik,
     przedmioty,
     dane: zakresDat(wOkresie),
-    okresy: uzyteOkresy,
-    okresyPoza: okresy(ucznia).filter((o) => !uzyteOkresy.some((u) => u.od === o.od && u.do === o.do)),
-    nakladajaSie: nakladajaSie(wOkresie),
-    tylkoOkresy: wOkresie.length > 0 && wOkresie.every((w) => !w.data && w.okres),
+    okresy,
+    luki: eksporty.size && od && doDnia ? luki(od, doDnia, okresy) : [],
+    eksporty: wybrane.map(({ zrodlo, od, do: d, roznica }) => ({ zrodlo, od, do: d, roznica: Boolean(roznica) })),
+    poza: [...eksporty.values()].filter((o) => !wZakresie(o.od, o.do) && (!doDnia || o.od <= doDnia) && (!od || o.do >= od)).map(({ zrodlo, od, do: d }) => ({ zrodlo, od, do: d })),
+    niespojne: niespojne.filter((o) => wZakresie(o.od, o.do)),
+    tylkoOkresy,
     bezDat: wOkresie.some((w) => !w.data && !w.okres),
     procentVulcan: zrodla.size === 1 && vulcan.length === 1 ? vulcan[0] : null,
     nieprzypisaneEtykiety: [...new Set(doSumy.filter((w) => !rodzaje[w.etykieta]).map((w) => w.etykieta))],
   };
-}
-
-/** Czy zestawienia z różnych plików mają wspólne dni (ten sam okres wgrany dwa razy też). */
-function nakladajaSie(wpisy) {
-  const pary = [...new Map(wpisy.filter((w) => !w.data && w.okres).map((w) => [`${w.zrodlo}|${w.okres.od}|${w.okres.do}`, w.okres])).values()];
-  pary.sort((a, b) => a.od.localeCompare(b.od));
-  return pary.some((o, i) => i > 0 && o.od <= pary[i - 1].do);
 }
 
 /** Okres i dziennik z arkusza „Opis parametrów” zestawień VULCAN. */

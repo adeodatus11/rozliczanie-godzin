@@ -20,6 +20,7 @@ for (const a of APLIKACJE) {
     charset: "utf8",
     write: false,
     legalComments: "none",
+    loader: { ".png": "dataurl" },
   });
   const js = wynik.outputFiles[0].text.replace(/<\/script/gi, "<\\/script");
   const szablon = await fs.readFile(new URL(a.html, import.meta.url), "utf8");

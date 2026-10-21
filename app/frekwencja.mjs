@@ -1,17 +1,22 @@
 // Zaświadczenia o frekwencji. Wszystko dzieje się w przeglądarce: eksport
 // z dziennika jest czytany lokalnie i trzymany tylko w pamięci strony.
-// W localStorage zostają wyłącznie ustawienia (nagłówek szkoły, przypisanie
-// rodzajów wpisów) — żadnych danych uczniów.
+// W localStorage zostaje wyłącznie przypisanie rodzajów wpisów — żadnych
+// danych uczniów.
 import { readWorkbook } from "../src/xlsx.mjs";
 import { dekoduj, czytajCsv, czytajHtml } from "../src/tabele.mjs";
+import LOGO from "./zsz5-logo.png"; // build.mjs wbudowuje jako data: URL
 import { RODZAJE, ROLE, rozpoznajTabele, ukladTabeli, czytajWpisy, rozpoznajMacierz, czytajMacierz, parametryZestawienia, domyslneRodzaje, polaczWpisy, listaUczniow, zakresDat, frekwencjaUcznia, kluczUcznia } from "../src/frekwencja.mjs";
 
 const $ = (s) => document.querySelector(s);
 const h = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const MIESIACE = ["styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec", "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień"];
+const MIESIACA = ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca", "lipca", "sierpnia", "września", "października", "listopada", "grudnia"];
+const okresyTekst = (okresy) => okresy.map((o) => `${dmr(o.od)}–${dmr(o.do)}`).join(", ");
+const slownie = (iso) => `${Number(iso.slice(8, 10))} ${MIESIACA[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`; // jak w szablonie: „21 października 2026”
 const dmr = (iso) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}` : "");
 const pr = (x) => (x == null ? "—" : `${x.toFixed(2).replace(".", ",")}%`);
 const liczba = (x) => String(Math.round(x * 100) / 100).replace(".", ",");
+const dodajDzien = (iso, n) => new Date(Date.parse(iso + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
 const dzis = () => new Date().toLocaleDateString("sv-SE");
 const ostatniDzien = (m) => `${m}-${String(new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5)), 0)).getUTCDate()).padStart(2, "0")}`;
 
@@ -28,7 +33,7 @@ const pliki = []; // [{nazwa, arkusze, arkusz, tabela, wpisy}]
 let wpisy = [];
 let rodzaje = {}; // etykieta → klucz RODZAJE
 const wybraneRodzaje = pamiec("frekwencja.rodzaje") ?? {}; // to, co użytkownik ustawił ręcznie
-const ustawienia = { szkola: "", miejscowosc: "", podpis: "dyrektor szkoły", ...pamiec("frekwencja.ustawienia"), numer: "", cel: "", data: dzis(), przedmioty: false };
+const ustawienia = { numer: "", cel: "", data: dzis(), przedmioty: false };
 const ui = { klucz: null, od: "", do: "", szukaj: "", komunikaty: [] };
 
 function komunikat(tekst, rodzaj = "") {
@@ -104,7 +109,7 @@ function render() {
   const otworzKolumny = pliki.some((p) => !p.tabela.uklad);
   $("#app").innerHTML = `
     <div class="drop" id="drop">
-      <p><b>Wgraj eksport frekwencji z dziennika</b> (przeciągnij tutaj albo wybierz): najlepiej <i>ZestawienieFrekwencjeNaLekcjachPrzedmiotow</i> z VULCAN za okres, który ma objąć zaświadczenie. Działa też XLSX, CSV albo HTML z kolumnami uczeń, data i wpis frekwencji (jeden wiersz = jedna lekcja). Kilka plików (np. po jednym na oddział) łączy się; ten sam plik wgrany drugi raz zastępuje poprzedni.</p>
+      <p><b>Wgraj eksport frekwencji z dziennika</b> (przeciągnij tutaj albo wybierz): <i>ZestawienieFrekwencjeNaLekcjachPrzedmiotow</i> z VULCAN. Ma ono same sumy za „Badany okres”, więc okres zaświadczenia składa się z wgranych eksportów i ich różnic: np. eksport 01.09–21.10 i eksport za wrzesień dają też 01.10–21.10. Najwygodniej: eksporty od 1 września do końca każdego miesiąca albo eksporty miesięczne. Działa też XLSX, CSV albo HTML z kolumnami uczeń, data i wpis frekwencji (jeden wiersz = jedna lekcja). Kilka plików (np. po jednym na oddział) łączy się; ten sam plik wgrany drugi raz zastępuje poprzedni.</p>
       <button type="button" data-akcja="wybierz">Wybierz pliki…</button>
       ${pliki.length ? `<button type="button" data-akcja="wyczysc">Usuń wczytane dane</button>` : ""}
     </div>
@@ -127,12 +132,9 @@ function render() {
     </div>
     <section class="panel"><h2>Zaświadczenie</h2>
       <div class="formularz">
-        <label>Nagłówek szkoły (pieczątka)<textarea data-u="szkola" placeholder="Zespół Szkół…&#10;ul. …&#10;00-000 …">${h(ustawienia.szkola)}</textarea></label>
-        <label>Miejscowość<input type="text" data-u="miejscowosc" value="${h(ustawienia.miejscowosc)}"></label>
         <label>Data wystawienia<input type="date" data-u="data" value="${h(ustawienia.data)}"></label>
         <label>Numer (opcjonalnie)<input type="text" data-u="numer" value="${h(ustawienia.numer)}" placeholder="np. 12/2026"></label>
         <label>Cel wydania (opcjonalnie)<input type="text" data-u="cel" value="${h(ustawienia.cel)}" placeholder="np. przedłożenia w MOPS"></label>
-        <label>Podpis<input type="text" data-u="podpis" value="${h(ustawienia.podpis)}"></label>
         <label class="wiersz"><input type="checkbox" data-u="przedmioty" ${ustawienia.przedmioty ? "checked" : ""}> frekwencja z podziałem na przedmioty</label>
       </div>
       <div class="pasek" style="margin:12px 0"><button type="button" class="primary" data-akcja="drukuj">Drukuj / zapisz jako PDF</button><span class="uwagaMala" style="margin:0">W oknie drukowania wybierz „Zapisz jako PDF”, żeby zachować plik.</span></div>
@@ -145,10 +147,19 @@ function render() {
 function presety() {
   const z = zakresDat(wpisy);
   if (!z) return `<span class="uwagaMala">Plik nie zawiera dat — wynik obejmuje okres, za który zrobiono eksport.</span>`;
-  const okresy = [...new Set(wpisy.filter((w) => w.okres).map((w) => `${w.okres.od}|${w.okres.do}`))].sort().map((k) => k.split("|"));
+  const eksporty = [...new Set(wpisy.filter((w) => w.okres).map((w) => `${w.okres.od}|${w.okres.do}`))].map((k) => k.split("|"));
+  // różnice eksportów o wspólnym początku albo końcu (jak w frekwencjaUcznia)
+  const roznice = eksporty.flatMap(([aOd, aDo]) =>
+    eksporty.flatMap(([bOd, bDo]) => {
+      if (aOd > bOd || bDo > aDo || (aOd === bOd && aDo === bDo)) return [];
+      if (aOd === bOd) return [[dodajDzien(bDo, 1), aDo]];
+      return aDo === bDo ? [[aOd, dodajDzien(bOd, -1)]] : [];
+    }),
+  );
+  const okresy = [...new Set([...eksporty, ...roznice].map((o) => o.join("|")))].sort().map((k) => k.split("|"));
   const miesiace = [...new Set(wpisy.map((w) => w.data?.slice(0, 7)).filter(Boolean))].sort();
   return `<button type="button" class="maly" data-od="${z.od}" data-do="${z.do}">wszystkie dane</button>${okresy
-    .map(([od, d]) => `<button type="button" class="maly" data-od="${od}" data-do="${d}">eksport ${dmr(od)}–${dmr(d)}</button>`)
+    .map(([od, d]) => `<button type="button" class="maly" data-od="${od}" data-do="${d}">${dmr(od)}–${dmr(d)}</button>`)
     .join("")}${miesiace
     .map((m) => `<button type="button" class="maly" data-od="${m}-01" data-do="${ostatniDzien(m)}">${MIESIACE[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</button>`)
     .join("")}`;
@@ -204,13 +215,24 @@ function renderWyniku() {
   const z = zakresDat(wpisy);
   const uwagi = [];
   if (ui.od && ui.do && ui.od > ui.do) uwagi.push(["blad", "Data „od” jest późniejsza niż „do”."]);
-  if (z && ui.do > z.do) uwagi.push(["uwaga", `Dane w plikach kończą się ${dmr(z.do)} — późniejsze dni nie są uwzględnione.`]);
-  if (z && ui.od < z.od) uwagi.push(["uwaga", `Dane w plikach zaczynają się ${dmr(z.od)} — wcześniejsze dni nie są uwzględnione.`]);
+  const vulcan = wpisy.some((w) => w.okres);
+  if (z && !vulcan && ui.do > z.do) uwagi.push(["uwaga", `Dane w plikach kończą się ${dmr(z.do)} — późniejsze dni nie są uwzględnione.`]);
+  if (z && !vulcan && ui.od < z.od) uwagi.push(["uwaga", `Dane w plikach zaczynają się ${dmr(z.od)} — wcześniejsze dni nie są uwzględnione.`]);
   if (f.nieprzypisane) uwagi.push(["uwaga", `${liczba(f.nieprzypisane)} wpisów bez przypisanego rodzaju (${f.nieprzypisaneEtykiety.join(", ")}) nie jest liczonych — ustaw je w „Jak liczone są wpisy”.`]);
   if (f.bezDat) uwagi.push(["uwaga", "Część danych nie ma dat — liczą się za cały okres eksportu, bez względu na wybrane daty."]);
-  for (const o of f.okresyPoza)
-    uwagi.push(["uwaga", `Eksport za okres ${dmr(o.od)}–${dmr(o.do)} nie mieści się w wybranych datach i nie jest liczony. Zestawienie VULCAN ma stały okres — żeby policzyć inny, zrób eksport za ten okres i wgraj go tutaj.`]);
-  if (f.nakladajaSie) uwagi.push(["blad", "Wgrane eksporty tego ucznia mają wspólne dni — godziny liczą się podwójnie. Zawęź okres albo usuń zbędny plik."]);
+  for (const o of f.niespojne)
+    uwagi.push(["uwaga", `Eksportów ${o.zrodlo} nie da się odjąć (okres ${okresyTekst([o])}): dane w dzienniku zmieniły się między eksportami. Zrób oba eksporty jeszcze raz, tego samego dnia.`]);
+  if (f.luki.length)
+    uwagi.push([
+      f.zajecia ? "uwaga" : "blad",
+      [
+        "Zestawienie VULCAN ma tylko sumy za cały „Badany okres” — część okresu da się policzyć tylko z innego eksportu albo z różnicy dwóch eksportów o wspólnym początku lub końcu.",
+        f.luki.length ? `Brak danych za: ${okresyTekst(f.luki)}.` : "",
+        f.poza.length ? `Eksport ${okresyTekst(f.poza)} wychodzi poza wybrane daty, więc nie jest liczony.` : "",
+        `Zaświadczenie obejmie ${f.okresy.length ? `tylko: ${okresyTekst(f.okresy)}` : "0 dni"}.`,
+        ui.od && ui.do ? `Żeby zaświadczyć ${dmr(ui.od)}–${dmr(ui.do)}, wygeneruj w VULCAN „Zestawienie frekwencji na lekcjach przedmiotów” z badanym okresem ${dmr(ui.od)}–${dmr(ui.do)} (albo eksporty za brakujące miesiące) i wgraj je tutaj.` : "",
+      ].filter(Boolean).join(" "),
+    ]);
   if (f.procentVulcan != null && f.frekwencja !== f.procentVulcan) uwagi.push(["blad", `VULCAN podaje dla tego eksportu ${pr(f.procentVulcan)} frekwencji, a tu wychodzi ${pr(f.frekwencja)} — sprawdź „Jak liczone są wpisy”.`]);
   cel.innerHTML = `
     ${uwagi.length ? `<ul class="komunikaty" style="margin-top:12px">${uwagi.map(([k, t]) => `<li class="${k}">${h(t)}</li>`).join("")}</ul>` : ""}
@@ -220,37 +242,58 @@ function renderWyniku() {
       <div class="kafel"><div class="l">Nieobecności usprawiedliwione</div><div class="v">${liczba(f.usprawiedliwiona)} h <small>${pr(f.procentUsprawiedliwionych)}</small></div></div>
       <div class="kafel"><div class="l">Zajęcia (obecności)</div><div class="v">${liczba(f.zajecia)} <small>(${liczba(f.obecny)})</small></div></div>
     </div>
-    <p class="uwagaMala">${f.procentVulcan != null && f.frekwencja === f.procentVulcan ? `<b style="color:var(--ok)">✓ zgodne z „% frekwencji” w zestawieniu VULCAN.</b> ` : ""}${f.dane ? `${f.tylkoOkresy ? "Okres eksportu" : "Wpisy ucznia w okresie"}: ${dmr(f.dane.od)}–${dmr(f.dane.do)}.` : ""} Procent nieobecności = godziny ÷ wszystkie zajęcia z wpisem frekwencji × 100.${f.pomin ? ` Poza rachunkiem („nie liczyć”): ${liczba(f.pomin)}.` : ""}</p>
+    <p class="uwagaMala">${f.procentVulcan != null && f.frekwencja === f.procentVulcan ? `<b style="color:var(--ok)">✓ zgodne z „% frekwencji” w zestawieniu VULCAN.</b> ` : ""}${f.tylkoOkresy ? `Okres z eksportów: ${f.eksporty.map((o) => `${dmr(o.od)}–${dmr(o.do)} (${o.roznica ? `różnica: ${h(o.zrodlo)}` : h(o.zrodlo)})`).join(", ")}.` : f.dane ? `Wpisy ucznia w okresie: ${dmr(f.dane.od)}–${dmr(f.dane.do)}.` : ""} Procent nieobecności = godziny ÷ wszystkie zajęcia z wpisem frekwencji × 100.${f.pomin ? ` Poza rachunkiem („nie liczyć”): ${liczba(f.pomin)}.` : ""}</p>
     ${f.przedmioty.length ? `<details><summary>Z podziałem na przedmioty (${f.przedmioty.length})</summary>${tabelaPrzedmiotow(f)}</details>` : ""}`;
   druk.innerHTML = zaswiadczenie(u, f);
+  dopasujNaglowek(druk);
+}
+
+/** Bez kroju Aptos (szablon) tekst nagłówka bywa szerszy niż kolumna — zmniejsza go, aż się zmieści. */
+function dopasujNaglowek(kartka) {
+  for (const el of kartka.querySelectorAll(".papier .nazwa, .papier .kol")) {
+    let px = parseFloat(getComputedStyle(el).fontSize);
+    while (el.scrollWidth > el.clientWidth + 1 && px > 6) el.style.fontSize = `${(px -= 0.25)}px`;
+  }
 }
 
 function tabelaPrzedmiotow(f) {
-  return `<table><thead><tr><th>Przedmiot</th><th>Zajęcia</th><th>Obecności</th><th>Uspraw.</th><th>Nieuspraw.</th><th>Frekwencja</th></tr></thead><tbody>${f.przedmioty
+  return `<table class="przedmioty"><thead><tr><th>Przedmiot</th><th>Zajęcia</th><th>Obecności</th><th>Uspraw.</th><th>Nieuspraw.</th><th>Frekwencja</th></tr></thead><tbody>${f.przedmioty
     .map((p) => `<tr><td>${h(p.przedmiot)}</td><td>${liczba(p.zajecia)}</td><td>${liczba(p.obecny)}</td><td>${liczba(p.usprawiedliwiona)}</td><td>${liczba(p.nieusprawiedliwiona)}</td><td>${pr(p.frekwencja)}</td></tr>`)
     .join("")}</tbody><tfoot><tr class="suma"><td>Razem</td><td>${liczba(f.zajecia)}</td><td>${liczba(f.obecny)}</td><td>${liczba(f.usprawiedliwiona)}</td><td>${liczba(f.nieusprawiedliwiona)}</td><td>${pr(f.frekwencja)}</td></tr></tfoot></table>`;
 }
 
 function zaswiadczenie(u, f) {
   const s = ustawienia;
-  // Przy zestawieniach VULCAN okres to okres eksportów, nie wybrane daty (mogą być szersze).
-  const okres = f.bezDat ? "okres objęty eksportem z dziennika" : f.tylkoOkresy ? `od ${dmr(f.dane.od)} do ${dmr(f.dane.do)}` : `od ${dmr(ui.od)} do ${dmr(ui.do)}`;
+  // Przy zestawieniach VULCAN okres to okresy wybranych eksportów, nie wpisane daty (mogą być szersze).
+  const okres = f.bezDat
+    ? "okres objęty eksportem z dziennika"
+    : f.tylkoOkresy
+      ? f.okresy.map((o) => `od ${dmr(o.od)} do ${dmr(o.do)}`).join(" oraz ")
+      : `od ${dmr(ui.od)} do ${dmr(ui.do)}`;
   return `<div class="kartka">
-    <div class="gora"><div class="szkola">${h(s.szkola) || "&nbsp;"}</div><div class="miejsce">${h(s.miejscowosc)}${s.miejscowosc ? ", " : ""}dnia ${dmr(s.data)}</div></div>
-    <h3>ZAŚWIADCZENIE O FREKWENCJI</h3>
-    <p class="numer">${s.numer ? `nr ${h(s.numer)}` : "&nbsp;"}</p>
-    <dl><dt>Nazwisko i imię</dt><dd>${h(u.uczen)}</dd>${u.oddzial ? `<dt>Oddział (klasa)</dt><dd>${h(u.oddzial)}</dd>` : ""}<dt>Okres</dt><dd>${okres}</dd></dl>
-    <p>Zaświadcza się, że w podanym okresie frekwencja na zajęciach lekcyjnych ze wszystkich przedmiotów wyniosła <b>${pr(f.frekwencja)}</b>, a liczba godzin nieobecności nieusprawiedliwionych — <b>${liczba(f.nieusprawiedliwiona)}</b>, tj. <b>${pr(f.procentNieusprawiedliwionych)}</b> wszystkich zajęć.</p>
-    <table><tbody>
-      <tr><td>Liczba godzin zajęć</td><td>${liczba(f.zajecia)}</td><td></td></tr>
-      <tr><td>Obecności (w tym spóźnienia)</td><td>${liczba(f.obecny)}</td><td>${pr(f.frekwencja)}</td></tr>
-      <tr><td>Nieobecności usprawiedliwione</td><td>${liczba(f.usprawiedliwiona)}</td><td>${pr(f.procentUsprawiedliwionych)}</td></tr>
-      <tr class="suma"><td>Nieobecności nieusprawiedliwione</td><td>${liczba(f.nieusprawiedliwiona)}</td><td>${pr(f.procentNieusprawiedliwionych)}</td></tr>
-    </tbody></table>
-    ${s.przedmioty && f.przedmioty.length ? tabelaPrzedmiotow(f) : ""}
-    ${s.cel ? `<p>Zaświadczenie wydaje się w celu ${h(s.cel)}.</p>` : ""}
-    <div class="podpis">pieczęć i podpis\n${h(s.podpis)}</div>
-    <div class="stopka">Na podstawie wpisów w dzienniku elektronicznym.</div>
+    <div class="papier">
+      <img class="logo" src="${LOGO}" alt="ZSZ5 we Wrocławiu">
+      <div class="nazwa">Zespół Szkół Zawodowych nr 5</div>
+      <div class="kol szkoly"><span>Technikum nr 5 im. Jana Kilińskiego</span><span>Branżowa Szkoła I stopnia nr 5 im. Jana Kilińskiego</span><span>Branżowa Szkoła II stopnia nr 5 im. Jana Kilińskiego</span></div>
+      <div class="kol kontakt"><span>ul. Jana Wł. Dawida 5, 50-527 Wrocław</span><span>tel. 71 798 69 34, www.zsz5.edupage.org</span><span>sekretariat.zsz5@wroclawskaedukacja.pl</span></div>
+      <div class="linia"></div>
+    </div>
+    <div class="tresc">
+      <p class="miejsce">Wrocław, ${s.data ? slownie(s.data) : ""}</p>
+      <h3>ZAŚWIADCZENIE O FREKWENCJI</h3>
+      <p class="numer">${s.numer ? `nr ${h(s.numer)}` : "&nbsp;"}</p>
+      <dl><dt>Nazwisko i imię</dt><dd>${h(u.uczen)}</dd>${u.oddzial ? `<dt>Oddział (klasa)</dt><dd>${h(u.oddzial)}</dd>` : ""}<dt>Okres</dt><dd>${okres}</dd></dl>
+      <p>Zaświadcza się, że w podanym okresie frekwencja na zajęciach lekcyjnych ze wszystkich przedmiotów wyniosła <b>${pr(f.frekwencja)}</b>, a liczba godzin nieobecności nieusprawiedliwionych — <b>${liczba(f.nieusprawiedliwiona)}</b>, tj. <b>${pr(f.procentNieusprawiedliwionych)}</b> wszystkich zajęć.</p>
+      <table><tbody>
+        <tr><td>Liczba godzin zajęć</td><td>${liczba(f.zajecia)}</td><td></td></tr>
+        <tr><td>Obecności (w tym spóźnienia)</td><td>${liczba(f.obecny)}</td><td>${pr(f.frekwencja)}</td></tr>
+        <tr><td>Nieobecności usprawiedliwione</td><td>${liczba(f.usprawiedliwiona)}</td><td>${pr(f.procentUsprawiedliwionych)}</td></tr>
+        <tr class="suma"><td>Nieobecności nieusprawiedliwione</td><td>${liczba(f.nieusprawiedliwiona)}</td><td>${pr(f.procentNieusprawiedliwionych)}</td></tr>
+      </tbody></table>
+      ${s.przedmioty && f.przedmioty.length ? tabelaPrzedmiotow(f) : ""}
+      ${s.cel ? `<p>Zaświadczenie wydaje się w celu ${h(s.cel)}.</p>` : ""}
+      <div class="stopka">Na podstawie wpisów w dzienniku elektronicznym.</div>
+    </div>
   </div>`;
 }
 
@@ -319,8 +362,6 @@ document.addEventListener("input", (e) => {
     renderListy();
   } else if (t.dataset.u) {
     ustawienia[t.dataset.u] = t.type === "checkbox" ? t.checked : t.value;
-    const { szkola, miejscowosc, podpis } = ustawienia;
-    pamiec("frekwencja.ustawienia", { szkola, miejscowosc, podpis });
     renderWyniku();
   }
 });
