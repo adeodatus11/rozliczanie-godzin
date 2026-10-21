@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<!-- Strona nie może łączyć się z siecią: dane uczniów zostają na tym komputerze. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Zaświadczenia o frekwencji</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #dfe3ea; --line-strong: #c4cad6;
+  --accent: #2456c7; --accent-soft: #e8eefc; --warn: #a15c00; --warn-soft: #fff3dc; --ok-soft: #e7f5ec; --ok: #1d7a43; --danger: #b42318; --danger-soft: #fde8e6;
+  --radius: 8px; --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171d; --panel: #1c2028; --text: #e6e9ef; --muted: #9aa3b5; --line: #2c323d; --line-strong: #3b4350;
+    --accent: #7ea2ff; --accent-soft: #233050; --warn: #f0b45a; --warn-soft: #3a2c13; --ok-soft: #173023; --ok: #6fd39a; --danger: #ff8a80; --danger-soft: #3a1916;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 16px; margin: 0; }
+header .offline { color: var(--ok); font-size: 13px; }
+button { font: inherit; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.maly { padding: 2px 8px; font-size: 13px; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 8px; }
+main { padding: 16px; max-width: 1200px; margin: 0 auto; display: grid; gap: 12px; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; }
+.drop { border: 1.5px dashed var(--line-strong); border-radius: var(--radius); padding: 14px 16px; background: var(--panel); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.drop.nad { border-color: var(--accent); background: var(--accent-soft); }
+.drop p { margin: 0; color: var(--muted); flex: 1 1 380px; }
+.komunikaty { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.komunikaty li { padding: 8px 12px; border-radius: 6px; background: var(--ok-soft); border-left: 3px solid var(--ok); }
+.komunikaty li.blad { background: var(--danger-soft); border-left-color: var(--danger); color: var(--danger); }
+.komunikaty li.uwaga { background: var(--warn-soft); border-left-color: var(--warn); }
+.uklad { display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 12px; }
+@media (max-width: 800px) { .uklad { grid-template-columns: 1fr; } main { padding: 8px; } }
+#uczniowie { width: 100%; height: 360px; margin-top: 8px; }
+.pasek { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.pasek label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+.kafle { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 12px 0; }
+.kafel { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.kafel .l { color: var(--muted); font-size: 12px; }
+.kafel .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kafel .v small { font-size: 13px; font-weight: 400; color: var(--muted); }
+.kafel.glowny { border-color: var(--accent); background: var(--accent-soft); }
+.uwagaMala { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+details > summary { cursor: pointer; font-weight: 600; }
+details[open] > summary { margin-bottom: 8px; }
+.mapa { display: grid; grid-template-columns: max-content max-content 1fr; gap: 4px 12px; align-items: center; }
+.mapa .brak { color: var(--warn); font-weight: 600; }
+.formularz { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 16px; }
+.formularz label { display: grid; gap: 2px; color: var(--muted); font-size: 13px; }
+.formularz textarea { min-height: 64px; resize: vertical; }
+.formularz .wiersz { display: flex; gap: 6px; align-items: center; }
+
+/* Zaświadczenie: kartka A4, zawsze jasna — tak jak wydruk. */
+.kartka { background: #fff; color: #111; width: min(210mm, 100%); margin: 0 auto; padding: 18mm 18mm 22mm; border: 1px solid var(--line); box-shadow: 0 2px 10px rgb(0 0 0 / .08); font: 12pt/1.5 "Times New Roman", Georgia, serif; }
+.kartka .gora { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
+.kartka .szkola { white-space: pre-line; font-size: 11pt; }
+.kartka .miejsce { white-space: nowrap; }
+.kartka h3 { text-align: center; font-size: 15pt; letter-spacing: .06em; margin: 14mm 0 2mm; }
+.kartka .numer { text-align: center; margin: 0 0 8mm; font-size: 11pt; }
+.kartka dl { display: grid; grid-template-columns: max-content 1fr; gap: 1mm 6mm; margin: 0 0 6mm; }
+.kartka dt { color: #444; }
+.kartka dd { margin: 0; font-weight: 700; }
+.kartka table { margin: 4mm 0 6mm; font-size: 11pt; }
+.kartka th, .kartka td { border: 1px solid #999; padding: 1.5mm 3mm; color: #111; }
+.kartka th { background: #f0f0f0; font-size: 10pt; }
+.kartka tr.suma td { font-weight: 700; }
+.kartka p { margin: 0 0 4mm; text-align: justify; }
+.kartka .podpis { margin-top: 22mm; margin-left: auto; width: 75mm; text-align: center; border-top: 1px dotted #555; padding-top: 1mm; font-size: 10pt; white-space: pre-line; }
+.kartka .stopka { margin-top: 10mm; font-size: 9pt; color: #555; }
+@media print {
+  @page { size: A4; margin: 0; }
+  body { background: #fff; }
+  body * { visibility: hidden; }
+  #druk, #druk * { visibility: visible; }
+  #druk { position: absolute; left: 0; top: 0; width: 100%; }
+  .kartka { border: 0; box-shadow: none; width: 210mm; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Zaświadczenia o frekwencji</h1>
+  <span class="offline">● bez sieci — pliki są czytane tylko na tym komputerze i nigdzie nie są wysyłane</span>
+</header>
+<main id="app"></main>
+<input type="file" id="wyborPlikow" multiple accept=".xlsx,.xls,.csv,.htm,.html,.txt" hidden>
+<script type="module" src="frekwencja.mjs"></script>
+</body>
+</html>

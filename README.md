@@ -25,6 +25,24 @@ Zasady:
 - IND i KKZ są liczone osobno, poza pensum.
 - Prywatny dzień wolny nie obniża pensum.
 
+## Zaświadczenia o frekwencji (`frekwencja.html`)
+
+Druga, osobna strona w tym samym projekcie: zaświadczenie o łącznej frekwencji ucznia ze wszystkich przedmiotów za wybrany okres.
+
+1. Wgraj eksport frekwencji z dziennika (XLSX, CSV albo „.xls” zapisany jako HTML). Najlepiej taki, w którym jeden wiersz to jedna lekcja ucznia: uczeń, oddział, data, nr lekcji, przedmiot, wpis frekwencji. Wystarczą kolumny: uczeń, data, wpis. Zadziała też zestawienie z sumami (obecności, nieobecności usprawiedliwione i nieusprawiedliwione), ale wtedy okres jest taki, za jaki zrobiono eksport. Kolumny rozpoznają się same. Jeśli się nie rozpoznają, wskażesz je w „Kolumny w plikach”.
+2. Wybierz ucznia (pole wyszukiwania + lista) i okres („od”, „do” albo przyciski miesięcy).
+3. Wynik:
+   - frekwencja = obecności ÷ (obecności + nieobecności) × 100,
+   - godziny nieobecności nieusprawiedliwionej i ich procent wszystkich zajęć.
+4. Uzupełnij nagłówek szkoły i kliknij „Drukuj / zapisz jako PDF”.
+
+Jak liczone są wpisy, sprawdzisz w „Jak liczone są wpisy”:
+- spóźnienie i nieobecność z przyczyn szkolnych liczą się jak obecność,
+- zwolnienie liczy się jak nieobecność usprawiedliwiona,
+- wpis oznaczony „nie liczyć” nie wchodzi do rachunku.
+
+Każdy wpis można przestawić. Strona ma zablokowany dostęp do sieci (Content-Security-Policy), a dane uczniów są tylko w pamięci karty. W przeglądarce zapamiętywane są wyłącznie nagłówek szkoły i przypisanie rodzajów wpisów.
+
 ## Kod
 
 | Plik | Co robi |
@@ -35,13 +53,14 @@ Zasady:
 | `src/konfiguracja.mjs`, `src/arkusz.mjs` | przeniesienie konfiguracji z dotychczasowego arkusza |
 | `src/stan.mjs`, `src/kalendarz.mjs`, `src/eksport.mjs` | plik rozliczenia, kalendarz 2026/27, eksport XLSX |
 | `src/xlsx.mjs`, `src/zip.mjs` | czytnik i zapis XLSX bez bibliotek (z repozytorium `zastepstwa`) |
-| `app/` | interfejs; `build.mjs` składa go w jeden plik `dist/index.html` |
+| `src/frekwencja.mjs`, `src/tabele.mjs` | zaświadczenia: rozpoznanie tabeli frekwencji, rodzaje wpisów, rachunek okresu; odczyt CSV i tabel HTML |
+| `app/` | interfejsy; `build.mjs` składa każdy w jeden plik: `dist/index.html` i `dist/frekwencja.html` |
 
 ```sh
 npm install
 npm test               # przykłady z załączników do szkolenia i przypadki na danych zmyślonych
-npm run build          # dist/index.html
-npm run aplikacja      # dodatkowo kopia ../aplikacja/rozliczanie-godzin.html
+npm run build          # dist/index.html, dist/frekwencja.html
+npm run aplikacja      # dodatkowo kopie ../aplikacja/rozliczanie-godzin.html i ../aplikacja/frekwencja.html
 ```
 
 Folder `lokalne/` (porównania na prawdziwych danych, raporty) jest wyłączony z repozytorium w `.gitignore`. Nie dodawaj do repozytorium eksportów z dziennika, plików rozliczenia ani raportów.

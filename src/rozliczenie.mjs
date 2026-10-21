@@ -46,6 +46,7 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
   const doSumy = zastepstwa.filter((z) => FORMY[z.forma] === "doSumy").map((z) => z.lekcja);
   const dorazneZast = zastepstwa.filter((z) => FORMY[z.forma] === "dorazne").length;
   const nieznane = zastepstwa.filter((z) => !z.forma);
+  const obcaForma = zastepstwa.filter((z) => z.forma && !FORMY[z.forma]); // forma spoza FORMY nie jest liczona — trzeba zdecydować
   const bezTematu = brakDanych ? [] : zast.filter((z) => FORMY[z.forma] !== "nic" && !(r?.zastepstwa ?? []).includes(z.lekcja) && !(r?.lekcje ?? []).includes(z.lekcja));
 
   const tematy = r?.lekcje ?? [];
@@ -62,6 +63,7 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
   if (brakujace.length) uwagi.push(`bez tematu lekcje z planu: ${brakujace.join(",")}`);
   if (nieznane.length && zestawienieWczytane) uwagi.push(`zastępstwo bez formy płatności w zestawieniu: lekcja ${nieznane.map((z) => z.lekcja).join(",")}`);
   if (nieznane.length && !zestawienieWczytane) uwagi.push(`zastępstwo — forma płatności nieznana (wgraj zestawienie zmian): lekcja ${nieznane.map((z) => z.lekcja).join(",")}`);
+  if (obcaForma.length) uwagi.push(`zastępstwo z nieznaną formą płatności: ${obcaForma.map((z) => `lekcja ${z.lekcja} „${z.forma}”`).join(", ")}`);
   if (bezTematu.length) uwagi.push(`zastępstwo bez tematu w dzienniku: lekcja ${bezTematu.map((z) => z.lekcja).join(",")}`);
   if (kal?.czesciowy) uwagi.push(`kalendarz: ${kal.opis}`);
 
@@ -74,7 +76,8 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
     else if (kal?.czesciowy && godzinyAuto === 0) podpowiedz = { odliczenie: "bezZajec", uwaga: kal.opis };
   }
   const odliczonyKalendarzem = kal && !kal.czesciowy;
-  const doWyjasnienia = !decyzja && !odliczonyKalendarzem && (Boolean(nieobIstotna) || brakujace.length > 0 || (nieznane.length > 0 && zestawienieWczytane) || bezTematu.length > 0 || Boolean(kal?.czesciowy));
+  const zatrudniony = (!n.od || data >= n.od) && (!n.do || data <= n.do);
+  const doWyjasnienia = !decyzja && !odliczonyKalendarzem && zatrudniony && (Boolean(nieobIstotna) || brakujace.length > 0 || (nieznane.length > 0 && zestawienieWczytane) || obcaForma.length > 0 || bezTematu.length > 0 || Boolean(kal?.czesciowy));
   return {
     data,
     plan,
@@ -114,7 +117,9 @@ export function rozliczNauczyciela(stan, osoba, miesiac, pamiec = new Map()) {
     }
   const m = rozliczMiesiac(n, { miesiac, kalendarz, decyzje });
   const wMiesiacu = Object.values(dni).filter((a) => a.data.startsWith(miesiac));
-  const liczone = wMiesiacu.filter((a) => !a.decyzja?.odliczenie && !kalendarz[a.data]);
+  // IND, KKZ i doraźne tylko z dni nieodliczonych (także poza okresem zatrudnienia).
+  const odliczone = new Set(m.tygodnie.flatMap((t) => t.dni).filter((d) => d.odliczenie).map((d) => d.data));
+  const liczone = wMiesiacu.filter((a) => !odliczone.has(a.data));
   const suma = (pole) => r2(liczone.reduce((s, a) => s + (a[pole] || 0), 0));
   const dodatkowe = { ind: suma("ind"), kkz: suma("kkz"), dorazne: suma("dorazne") };
   return {
