@@ -21,12 +21,12 @@ const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim().toLocaleLowerCas
 export function rodzajWpisu(etykieta) {
   const t = norm(etykieta);
   if (!t) return null;
-  if (/nieusprawiedliw|^(nb|n|-|–|—)$/.test(t)) return "nieusprawiedliwiona";
+  if (/nieusprawiedliw|^(nb|n|-|–|—|▬)$/.test(t)) return "nieusprawiedliwiona";
   if (/przyczyn szkolnych|^ns$/.test(t)) return "obecny";
   if (/spóźn|^(s|sp|su|ss)$/.test(t)) return "obecny";
   if (/zwolnion\S* obecn|^zo$/.test(t)) return "obecny";
   if (/zwolni|^(z|zw)$/.test(t)) return "usprawiedliwiona";
-  if (/usprawiedliw|^(u|nu)$/.test(t)) return "usprawiedliwiona";
+  if (/usprawiedliw|^(u|nu|l4)$/.test(t)) return "usprawiedliwiona";
   if (/^nieobecn/.test(t)) return "nieusprawiedliwiona";
   if (/obecn|^(ob|o|\+|•|●|·|\.)$/.test(t)) return "obecny";
   return null;
@@ -130,10 +130,11 @@ export function czytajWpisy(wiersze, { wiersz, uklad, kolumny, sumy }) {
 /**
  * Domyślne przypisanie etykiet do rodzajów. W układzie „sumy” kolumna ogólna
  * „Nieobecności” obok usprawiedliwionych i nieusprawiedliwionych byłaby liczona
- * podwójnie — dostaje „nie liczyć”.
+ * podwójnie — dostaje „nie liczyć”. Symbole, które zestawienie VULCAN liczy
+ * poza podstawą frekwencji (pozaPodstawa), też.
  */
-export function domyslneRodzaje(etykiety, uklad) {
-  const out = Object.fromEntries(etykiety.map((e) => [e, rodzajWpisu(e) ?? (uklad === "sumy" ? "pomin" : null)]));
+export function domyslneRodzaje(etykiety, uklad, pozaPodstawa = []) {
+  const out = Object.fromEntries(etykiety.map((e) => [e, pozaPodstawa.includes(e) ? "pomin" : (rodzajWpisu(e) ?? (uklad === "sumy" ? "pomin" : null))]));
   if (uklad === "sumy" && etykiety.some((e) => /nieusprawiedliw/i.test(e)) && etykiety.some((e) => /(^|\s)usprawiedliw/i.test(e)))
     for (const e of etykiety) if (/^nieobecno\S*$/i.test(e.trim())) out[e] = "pomin";
   return out;
@@ -160,17 +161,23 @@ export function listaUczniow(wpisy) {
   return [...m.values()].sort((a, b) => a.oddzial.localeCompare(b.oddzial, "pl", { numeric: true }) || a.uczen.localeCompare(b.uczen, "pl"));
 }
 
-/** Zakres dat wpisów (null, gdy plik nie ma dat). */
+/** Zakres danych: daty wpisów i okresy zestawień (null, gdy nie ma ani jednych, ani drugich). */
 export function zakresDat(wpisy) {
-  const daty = wpisy.map((w) => w.data).filter(Boolean).sort();
-  return daty.length ? { od: daty[0], do: daty.at(-1) } : null;
+  const od = wpisy.map((w) => w.data ?? w.okres?.od).filter(Boolean).sort();
+  const doDnia = wpisy.map((w) => w.data ?? w.okres?.do).filter(Boolean).sort();
+  return od.length ? { od: od[0], do: doDnia.at(-1) } : null;
 }
 
 const procent = (x, z) => (z ? Math.round((x / z) * 10000) / 100 : null);
+const POLA = ["obecny", "usprawiedliwiona", "nieusprawiedliwiona", "pomin", "nieprzypisane"];
 
 function zlicz(wpisy, rodzaje) {
-  const s = { obecny: 0, usprawiedliwiona: 0, nieusprawiedliwiona: 0, pomin: 0, nieprzypisane: 0 };
+  const s = Object.fromEntries(POLA.map((k) => [k, 0]));
   for (const w of wpisy) s[rodzaje[w.etykieta] ?? "nieprzypisane"] += w.n;
+  return wskazniki(s);
+}
+
+function wskazniki(s) {
   s.zajecia = s.obecny + s.usprawiedliwiona + s.nieusprawiedliwiona;
   s.frekwencja = procent(s.obecny, s.zajecia);
   s.procentNieusprawiedliwionych = procent(s.nieusprawiedliwiona, s.zajecia);
@@ -182,21 +189,109 @@ function zlicz(wpisy, rodzaje) {
  * Frekwencja ucznia ze wszystkich przedmiotów w okresie [od, do] (włącznie).
  *  frekwencja                  — obecności / zajęcia × 100,
  *  procentNieusprawiedliwionych — godziny nieusprawiedliwione / zajęcia × 100.
- * Wpisy bez daty (eksport sum) wchodzą zawsze — wtedy bezDat = true.
+ * Wpisy z datą liczą się, gdy data jest w okresie. Zestawienie VULCAN ma stały
+ * okres eksportu: liczy się tylko, gdy cały mieści się w wybranym okresie
+ * (inaczej trafia do okresyPoza). Gdy plik ma sumę ucznia („Wszystkie wpisy”),
+ * wynik jest z niej, a przedmioty służą do rozbicia.
  */
 export function frekwencjaUcznia(wpisy, klucz, { od, do: doDnia }, rodzaje) {
+  const wZakresie = (a, b) => (!od || a >= od) && (!doDnia || b <= doDnia);
   const ucznia = wpisy.filter((w) => kluczUcznia(w) === klucz);
-  const wOkresie = ucznia.filter((w) => !w.data || ((!od || w.data >= od) && (!doDnia || w.data <= doDnia)));
-  const przedmioty = new Map();
-  for (const w of wOkresie) (przedmioty.get(w.przedmiot) ?? przedmioty.set(w.przedmiot, []).get(w.przedmiot)).push(w);
+  const wOkresie = ucznia.filter((w) => (w.data ? wZakresie(w.data, w.data) : w.okres ? wZakresie(w.okres.od, w.okres.do) : true));
+  const okresy = (ws) => [...new Map(ws.filter((w) => !w.data && w.okres).map((w) => [`${w.okres.od}|${w.okres.do}`, w.okres])).values()].sort((a, b) => a.od.localeCompare(b.od));
+
+  const zrodla = new Map();
+  for (const w of wOkresie) (zrodla.get(w.zrodlo) ?? zrodla.set(w.zrodlo, []).get(w.zrodlo)).push(w);
+  const doSumy = [...zrodla.values()].flatMap((ws) => (ws.some((w) => w.razem) ? ws.filter((w) => w.razem) : ws));
+  const wynik = zlicz(doSumy, rodzaje);
+
+  const czesci = new Map();
+  for (const w of wOkresie) if (!w.razem && w.przedmiot) (czesci.get(w.przedmiot) ?? czesci.set(w.przedmiot, []).get(w.przedmiot)).push(w);
+  const przedmioty = [...czesci].sort((a, b) => a[0].localeCompare(b[0], "pl")).map(([przedmiot, ws]) => ({ przedmiot, ...zlicz(ws, rodzaje) }));
+  // Suma ucznia w zestawieniu VULCAN obejmuje też lekcje spoza listy przedmiotów.
+  if (przedmioty.length) {
+    const reszta = Object.fromEntries(POLA.map((k) => [k, wynik[k] - przedmioty.reduce((s, p) => s + p[k], 0)]));
+    if (POLA.some((k) => reszta[k] > 0)) przedmioty.push({ przedmiot: "inne wpisy (poza listą przedmiotów)", ...wskazniki(reszta) });
+  }
+
+  const uzyteOkresy = okresy(wOkresie);
+  const vulcan = [...new Set(doSumy.filter((w) => w.razem).map((w) => w.procentVulcan))];
   return {
-    ...zlicz(wOkresie, rodzaje),
-    przedmioty: [...przedmioty]
-      .filter(([p]) => p)
-      .sort((a, b) => a[0].localeCompare(b[0], "pl"))
-      .map(([przedmiot, ws]) => ({ przedmiot, ...zlicz(ws, rodzaje) })),
+    ...wynik,
+    przedmioty,
     dane: zakresDat(wOkresie),
-    bezDat: wOkresie.some((w) => !w.data),
-    nieprzypisaneEtykiety: [...new Set(wOkresie.filter((w) => !rodzaje[w.etykieta]).map((w) => w.etykieta))],
+    okresy: uzyteOkresy,
+    okresyPoza: okresy(ucznia).filter((o) => !uzyteOkresy.some((u) => u.od === o.od && u.do === o.do)),
+    nakladajaSie: nakladajaSie(wOkresie),
+    tylkoOkresy: wOkresie.length > 0 && wOkresie.every((w) => !w.data && w.okres),
+    bezDat: wOkresie.some((w) => !w.data && !w.okres),
+    procentVulcan: zrodla.size === 1 && vulcan.length === 1 ? vulcan[0] : null,
+    nieprzypisaneEtykiety: [...new Set(doSumy.filter((w) => !rodzaje[w.etykieta]).map((w) => w.etykieta))],
   };
+}
+
+/** Czy zestawienia z różnych plików mają wspólne dni (ten sam okres wgrany dwa razy też). */
+function nakladajaSie(wpisy) {
+  const pary = [...new Map(wpisy.filter((w) => !w.data && w.okres).map((w) => [`${w.zrodlo}|${w.okres.od}|${w.okres.do}`, w.okres])).values()];
+  pary.sort((a, b) => a.od.localeCompare(b.od));
+  return pary.some((o, i) => i > 0 && o.od <= pary[i - 1].do);
+}
+
+/** Okres i dziennik z arkusza „Opis parametrów” zestawień VULCAN. */
+export function parametryZestawienia(arkusze) {
+  const opis = (arkusze["Opis parametrów"] ?? []).flat().join("\n");
+  const m = opis.match(/Badany okres:\s*(\d{1,2}\.\d{1,2}\.\d{4})\s*-\s*(\d{1,2}\.\d{1,2}\.\d{4})/);
+  return { okres: m ? { od: dataIso(m[1]), do: dataIso(m[2]) } : null, dziennik: opis.match(/Dziennik:\s*([^;\n]+)/)?.[1].trim() ?? null };
+}
+
+/**
+ * „Zestawienie frekwencji na lekcjach przedmiotów” (VULCAN): wiersz = uczeń,
+ * nad kolumnami przedmiot (komórka scalona), pod nim symbole wpisów. Symbol
+ * z parą kolumn (liczba, %) wchodzi do podstawy frekwencji, sam licznik nie —
+ * tak liczy VULCAN. Blok „Wszystkie wpisy” to suma ucznia.
+ * Zwraca {wiersz, uklad: "macierz", kolumny: {uczen, oddzial}, bloki, pozaPodstawa} albo null.
+ */
+export function rozpoznajMacierz(wiersze) {
+  for (let r = 0; r < Math.min(wiersze.length - 1, 20); r++) {
+    const naglowek = (wiersze[r] ?? []).map(norm);
+    const symbole = (wiersze[r + 1] ?? []).map((s) => String(s ?? "").trim());
+    const uczen = naglowek.findIndex((h) => /^uczeń/.test(h));
+    if (uczen < 0 || !symbole.includes("% frekwencji")) continue;
+    const oddzial = naglowek.findIndex((h) => ROLE.oddzial.wzor.test(h));
+    const bloki = [];
+    for (let i = uczen + 1; i < symbole.length; i++) {
+      const przedmiot = String(wiersze[r][i] ?? "").trim();
+      if (przedmiot) bloki.push({ przedmiot: przedmiot.replace(/\s*\([^)]*\)$/, ""), razem: /^wszystkie wpisy$/i.test(przedmiot), kolumny: [], kolProcent: null });
+      const b = bloki.at(-1);
+      const s = symbole[i];
+      if (!b || !s) continue;
+      if (s === "% frekwencji") b.kolProcent = i;
+      else if (b.kolumny.at(-1)?.symbol === s && b.kolumny.at(-1).i === i - 1) b.kolumny.at(-1).wPodstawie = true; // druga kolumna pary to %
+      else b.kolumny.push({ i, symbol: s, wPodstawie: false });
+    }
+    if (!bloki.length) continue;
+    const pozaPodstawa = [...new Set(bloki.flatMap((b) => b.kolumny.filter((k) => !k.wPodstawie).map((k) => k.symbol)))];
+    return { wiersz: r, uklad: "macierz", kolumny: { uczen, ...(oddzial >= 0 && { oddzial }) }, bloki, pozaPodstawa };
+  }
+  return null;
+}
+
+/** Wiersze zestawienia → wpisy z liczbami; suma ucznia ma razem = true i procent wyliczony przez VULCAN. */
+export function czytajMacierz(wiersze, { wiersz, kolumny, bloki }) {
+  const out = [];
+  for (const w of wiersze.slice(wiersz + 2)) {
+    if (!w) continue;
+    const uczen = tekst(w, kolumny.uczen).replace(/,\s*nr\s*\d+\s*$/i, "");
+    if (!uczen) continue;
+    const oddzial = tekst(w, kolumny.oddzial);
+    for (const b of bloki) {
+      const p = tekst(w, b.kolProcent).replace("%", "").replace(",", ".");
+      const extra = b.razem ? { razem: true, procentVulcan: p && !isNaN(Number(p)) ? Number(p) : null } : {};
+      for (const k of b.kolumny) {
+        const n = Number(tekst(w, k.i).replace(",", "."));
+        if (n > 0) out.push({ uczen, oddzial, data: null, przedmiot: b.razem ? "" : b.przedmiot, lekcja: "", etykieta: k.symbol, n, ...extra });
+      }
+    }
+  }
+  return out;
 }

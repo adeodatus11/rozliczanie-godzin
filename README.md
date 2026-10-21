@@ -29,7 +29,8 @@ Zasady:
 
 Druga, osobna strona w tym samym projekcie: zaświadczenie o łącznej frekwencji ucznia ze wszystkich przedmiotów za wybrany okres.
 
-1. Wgraj eksport frekwencji z dziennika (XLSX, CSV albo „.xls” zapisany jako HTML). Najlepiej taki, w którym jeden wiersz to jedna lekcja ucznia: uczeń, oddział, data, nr lekcji, przedmiot, wpis frekwencji. Wystarczą kolumny: uczeń, data, wpis. Zadziała też zestawienie z sumami (obecności, nieobecności usprawiedliwione i nieusprawiedliwione), ale wtedy okres jest taki, za jaki zrobiono eksport. Kolumny rozpoznają się same. Jeśli się nie rozpoznają, wskażesz je w „Kolumny w plikach”.
+1. Wgraj eksport z VULCAN **„Zestawienie frekwencji na lekcjach przedmiotów”** (`ZestawienieFrekwencjeNaLekcjachPrzedmiotow*.xlsx`), zrobiony za okres, który ma objąć zaświadczenie. Okres ustawia się przy eksporcie (plik podaje go w „Opisie parametrów”), bo zestawienie zawiera same sumy, bez dat. Wynik jest liczony tak jak w VULCAN, a strona porównuje go z „% frekwencji” z pliku. Kilka klas wgrywa się kilkoma plikami.
+   - Działa też XLSX, CSV albo HTML z jednym wierszem na lekcję (uczeń, data, wpis frekwencji); wtedy okres wybierzesz dowolnie. Kolumny rozpoznają się same, a jeśli nie, wskażesz je w „Kolumny w plikach”.
 2. Wybierz ucznia (pole wyszukiwania + lista) i okres („od”, „do” albo przyciski miesięcy).
 3. Wynik:
    - frekwencja = obecności ÷ (obecności + nieobecności) × 100,
@@ -37,9 +38,9 @@ Druga, osobna strona w tym samym projekcie: zaświadczenie o łącznej frekwencj
 4. Uzupełnij nagłówek szkoły i kliknij „Drukuj / zapisz jako PDF”.
 
 Jak liczone są wpisy, sprawdzisz w „Jak liczone są wpisy”:
-- spóźnienie i nieobecność z przyczyn szkolnych liczą się jak obecność,
-- zwolnienie liczy się jak nieobecność usprawiedliwiona,
-- wpis oznaczony „nie liczyć” nie wchodzi do rachunku.
+- podstawa = symbole, które VULCAN ma z kolumną % (●, ▬, u, s, su, ns, zw, L4, w, um, kw, ind); symbole bez kolumny % (np. p, k, z, ?) są „nie liczyć”,
+- obecność: ●, s, su; nieusprawiedliwiona: ▬; usprawiedliwiona: u, L4, zw,
+- „Wszystkie wpisy” obejmują też lekcje spoza listy przedmiotów — w podziale na przedmioty to wiersz „inne wpisy”.
 
 Każdy wpis można przestawić. Strona ma zablokowany dostęp do sieci (Content-Security-Policy), a dane uczniów są tylko w pamięci karty. W przeglądarce zapamiętywane są wyłącznie nagłówek szkoły i przypisanie rodzajów wpisów.
 

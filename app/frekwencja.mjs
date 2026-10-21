@@ -4,7 +4,7 @@
 // rodzajów wpisów) — żadnych danych uczniów.
 import { readWorkbook } from "../src/xlsx.mjs";
 import { dekoduj, czytajCsv, czytajHtml } from "../src/tabele.mjs";
-import { RODZAJE, ROLE, rozpoznajTabele, ukladTabeli, czytajWpisy, domyslneRodzaje, polaczWpisy, listaUczniow, zakresDat, frekwencjaUcznia, kluczUcznia } from "../src/frekwencja.mjs";
+import { RODZAJE, ROLE, rozpoznajTabele, ukladTabeli, czytajWpisy, rozpoznajMacierz, czytajMacierz, parametryZestawienia, domyslneRodzaje, polaczWpisy, listaUczniow, zakresDat, frekwencjaUcznia, kluczUcznia } from "../src/frekwencja.mjs";
 
 const $ = (s) => document.querySelector(s);
 const h = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -46,12 +46,20 @@ async function arkuszeZPliku(f) {
   return { CSV: czytajCsv(tekst) };
 }
 
+const rozpoznaj = (wiersze) => rozpoznajMacierz(wiersze) ?? rozpoznajTabele(wiersze);
+const pustaTabela = () => ({ wiersz: 0, kolumny: {}, sumy: [], uklad: null });
+
 function przelicz() {
-  for (const p of pliki) p.wpisy = p.tabela?.uklad ? czytajWpisy(p.arkusze[p.arkusz], p.tabela) : [];
+  for (const p of pliki) {
+    const wiersze = p.arkusze[p.arkusz];
+    const surowe = p.tabela.uklad === "macierz" ? czytajMacierz(wiersze, p.tabela) : p.tabela.uklad ? czytajWpisy(wiersze, p.tabela) : [];
+    // Wpis bez daty dostaje okres eksportu z „Opisu parametrów”, jeśli plik go podaje.
+    p.wpisy = surowe.map((w) => ({ ...w, zrodlo: p.nazwa, ...(!w.data && p.okres && { okres: p.okres }) }));
+  }
   wpisy = polaczWpisy(pliki.map((p) => p.wpisy));
   const etykiety = [...new Set(wpisy.map((w) => w.etykieta))];
-  const sumy = pliki.some((p) => p.tabela?.uklad === "sumy");
-  rodzaje = { ...domyslneRodzaje(etykiety, sumy ? "sumy" : "wpisy") };
+  const sumy = pliki.some((p) => p.tabela.uklad === "sumy");
+  rodzaje = domyslneRodzaje(etykiety, sumy ? "sumy" : "wpisy", pliki.flatMap((p) => p.tabela.pozaPodstawa ?? []));
   for (const e of etykiety) if (wybraneRodzaje[e]) rodzaje[e] = wybraneRodzaje[e];
   if (ui.klucz && !wpisy.some((w) => kluczUcznia(w) === ui.klucz)) ui.klucz = null;
 }
@@ -63,18 +71,21 @@ async function wczytajPliki(lista) {
       let arkusz = null;
       let tabela = null;
       for (const [nazwa, wiersze] of Object.entries(arkusze)) {
-        tabela = rozpoznajTabele(wiersze);
+        tabela = rozpoznaj(wiersze);
         if (tabela) {
           arkusz = nazwa;
           break;
         }
       }
-      const p = { nazwa: f.name, arkusze, arkusz: arkusz ?? Object.keys(arkusze)[0], tabela: tabela ?? { wiersz: 0, kolumny: {}, sumy: [], uklad: null }, wpisy: [] };
+      const { okres, dziennik } = parametryZestawienia(arkusze);
+      const p = { nazwa: f.name, arkusze, arkusz: arkusz ?? Object.keys(arkusze)[0], tabela: tabela ?? pustaTabela(), okres, wpisy: [] };
       const i = pliki.findIndex((x) => x.nazwa === f.name);
       if (i >= 0) pliki[i] = p;
       else pliki.push(p);
       przelicz();
       if (!tabela) komunikat(`${f.name}: nie rozpoznano kolumn. Wskaż je niżej w „Kolumny w plikach”.`, "uwaga");
+      else if (tabela.uklad === "macierz")
+        komunikat(`${f.name}: zestawienie frekwencji VULCAN${dziennik ? ` — ${dziennik}` : ""}, ${okres ? `okres ${dmr(okres.od)}–${dmr(okres.do)}` : "bez okresu w opisie parametrów"}, ${listaUczniow(p.wpisy).length} uczniów, ${tabela.bloki.filter((b) => !b.razem).length} przedmiotów.`);
       else {
         const z = zakresDat(p.wpisy);
         komunikat(`${f.name}: ${p.wpisy.length} ${tabela.uklad === "wpisy" ? "wpisów" : "pozycji z sumami"}, ${listaUczniow(p.wpisy).length} uczniów${z ? `, ${dmr(z.od)}–${dmr(z.do)}` : ", bez dat"}.`);
@@ -93,7 +104,7 @@ function render() {
   const otworzKolumny = pliki.some((p) => !p.tabela.uklad);
   $("#app").innerHTML = `
     <div class="drop" id="drop">
-      <p><b>Wgraj eksport frekwencji z dziennika</b> (przeciągnij tutaj albo wybierz): XLSX, CSV albo HTML. Potrzebne kolumny: uczeń, data i wpis frekwencji (jeden wiersz = jedna lekcja), albo uczeń i liczby obecności / nieobecności. Kilka plików (np. po jednym na oddział) łączy się; ten sam plik wgrany drugi raz zastępuje poprzedni.</p>
+      <p><b>Wgraj eksport frekwencji z dziennika</b> (przeciągnij tutaj albo wybierz): najlepiej <i>ZestawienieFrekwencjeNaLekcjachPrzedmiotow</i> z VULCAN za okres, który ma objąć zaświadczenie. Działa też XLSX, CSV albo HTML z kolumnami uczeń, data i wpis frekwencji (jeden wiersz = jedna lekcja). Kilka plików (np. po jednym na oddział) łączy się; ten sam plik wgrany drugi raz zastępuje poprzedni.</p>
       <button type="button" data-akcja="wybierz">Wybierz pliki…</button>
       ${pliki.length ? `<button type="button" data-akcja="wyczysc">Usuń wczytane dane</button>` : ""}
     </div>
@@ -134,8 +145,11 @@ function render() {
 function presety() {
   const z = zakresDat(wpisy);
   if (!z) return `<span class="uwagaMala">Plik nie zawiera dat — wynik obejmuje okres, za który zrobiono eksport.</span>`;
+  const okresy = [...new Set(wpisy.filter((w) => w.okres).map((w) => `${w.okres.od}|${w.okres.do}`))].sort().map((k) => k.split("|"));
   const miesiace = [...new Set(wpisy.map((w) => w.data?.slice(0, 7)).filter(Boolean))].sort();
-  return `<button type="button" class="maly" data-od="${z.od}" data-do="${z.do}">wszystkie dane</button>${miesiace
+  return `<button type="button" class="maly" data-od="${z.od}" data-do="${z.do}">wszystkie dane</button>${okresy
+    .map(([od, d]) => `<button type="button" class="maly" data-od="${od}" data-do="${d}">eksport ${dmr(od)}–${dmr(d)}</button>`)
+    .join("")}${miesiace
     .map((m) => `<button type="button" class="maly" data-od="${m}-01" data-do="${ostatniDzien(m)}">${MIESIACE[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</button>`)
     .join("")}`;
 }
@@ -145,11 +159,12 @@ function panelKolumn(otwarty) {
     .map((p, n) => {
       const naglowek = p.arkusze[p.arkusz]?.[p.tabela.wiersz] ?? [];
       const opcje = (wybrana) => `<option value="">—</option>${naglowek.map((c, i) => (String(c).trim() ? `<option value="${i}" ${wybrana === i ? "selected" : ""}>${h(c)}</option>` : "")).join("")}`;
-      return `<div style="margin-bottom:12px"><b>${h(p.nazwa)}</b> — ${p.tabela.uklad === "wpisy" ? "jeden wiersz = jedna lekcja" : p.tabela.uklad === "sumy" ? `sumy w kolumnach: ${p.tabela.sumy.map((i) => h(naglowek[i])).join(", ")}` : `<span class="mapa"><span class="brak">nie rozpoznano tabeli</span></span>`}
+      const macierz = p.tabela.uklad === "macierz";
+      return `<div style="margin-bottom:12px"><b>${h(p.nazwa)}</b> — ${macierz ? `zestawienie VULCAN (uczeń × przedmiot × symbol wpisu)${p.okres ? `, okres ${dmr(p.okres.od)}–${dmr(p.okres.do)}` : ""}; przedmioty: ${p.tabela.bloki.map((b) => h(b.przedmiot)).join(", ")}` : p.tabela.uklad === "wpisy" ? "jeden wiersz = jedna lekcja" : p.tabela.uklad === "sumy" ? `sumy w kolumnach: ${p.tabela.sumy.map((i) => h(naglowek[i])).join(", ")}` : `<span class="mapa"><span class="brak">nie rozpoznano tabeli</span></span>`}
         <div class="pasek" style="margin-top:6px">
           ${Object.keys(p.arkusze).length > 1 ? `<label>Arkusz <select data-plik="${n}" data-pole="arkusz">${Object.keys(p.arkusze).map((a) => `<option ${a === p.arkusz ? "selected" : ""}>${h(a)}</option>`).join("")}</select></label>` : ""}
-          <label>Wiersz nagłówka <input type="number" min="1" style="width:64px" data-plik="${n}" data-pole="wiersz" value="${p.tabela.wiersz + 1}"></label>
-          ${Object.entries(ROLE).map(([r, { nazwa }]) => `<label>${nazwa} <select data-plik="${n}" data-rola="${r}">${opcje(p.tabela.kolumny[r])}</select></label>`).join("")}
+          ${macierz ? "" : `<label>Wiersz nagłówka <input type="number" min="1" style="width:64px" data-plik="${n}" data-pole="wiersz" value="${p.tabela.wiersz + 1}"></label>
+          ${Object.entries(ROLE).map(([r, { nazwa }]) => `<label>${nazwa} <select data-plik="${n}" data-rola="${r}">${opcje(p.tabela.kolumny[r])}</select></label>`).join("")}`}
         </div></div>`;
     })
     .join("")}<p class="uwagaMala">Uczeń: jedna kolumna „nazwisko i imię” albo osobno nazwisko i imię. Bez kolumny „Wpis frekwencji” liczbowe kolumny tabeli są czytane jako sumy (np. „Obecności”, „Nieobecności usprawiedliwione”).</p></details>`;
@@ -164,7 +179,7 @@ function panelRodzajow(otwarty) {
     <div class="mapa">${etykiety
       .map((e) => `<span ${rodzaje[e] ? "" : `class="brak"`}>${h(e)}</span><span class="uwagaMala" style="margin:0">${liczba(ile[e])}</span><select data-etykieta="${h(e)}"><option value="">— wybierz —</option>${Object.entries(RODZAJE).map(([k, t]) => `<option value="${k}" ${rodzaje[e] === k ? "selected" : ""}>${t}</option>`).join("")}</select>`)
       .join("")}</div>
-    <p class="uwagaMala">Frekwencja = obecności ÷ (obecności + nieobecności) × 100. Spóźnienie i nieobecność z przyczyn szkolnych (konkurs, wycieczka) liczą się jak obecność, zwolnienie jak nieobecność usprawiedliwiona. „Nie liczyć” — wpis poza rachunkiem (np. zwolniony z zajęć wychowania fizycznego).</p></details>`;
+    <p class="uwagaMala">Frekwencja = obecności ÷ (obecności + nieobecności) × 100. Spóźnienie i nieobecność z przyczyn szkolnych (konkurs, wycieczka) liczą się jak obecność, zwolnienie jak nieobecność usprawiedliwiona. „Nie liczyć” — wpis poza rachunkiem (np. zwolniony z zajęć wychowania fizycznego); w zestawieniu VULCAN tak są ustawione symbole, które VULCAN liczy poza frekwencją (bez kolumny %). Przy zestawieniu VULCAN wynik jest porównywany z jego „% frekwencji”.</p></details>`;
 }
 
 function renderListy() {
@@ -193,6 +208,10 @@ function renderWyniku() {
   if (z && ui.od < z.od) uwagi.push(["uwaga", `Dane w plikach zaczynają się ${dmr(z.od)} — wcześniejsze dni nie są uwzględnione.`]);
   if (f.nieprzypisane) uwagi.push(["uwaga", `${liczba(f.nieprzypisane)} wpisów bez przypisanego rodzaju (${f.nieprzypisaneEtykiety.join(", ")}) nie jest liczonych — ustaw je w „Jak liczone są wpisy”.`]);
   if (f.bezDat) uwagi.push(["uwaga", "Część danych nie ma dat — liczą się za cały okres eksportu, bez względu na wybrane daty."]);
+  for (const o of f.okresyPoza)
+    uwagi.push(["uwaga", `Eksport za okres ${dmr(o.od)}–${dmr(o.do)} nie mieści się w wybranych datach i nie jest liczony. Zestawienie VULCAN ma stały okres — żeby policzyć inny, zrób eksport za ten okres i wgraj go tutaj.`]);
+  if (f.nakladajaSie) uwagi.push(["blad", "Wgrane eksporty tego ucznia mają wspólne dni — godziny liczą się podwójnie. Zawęź okres albo usuń zbędny plik."]);
+  if (f.procentVulcan != null && f.frekwencja !== f.procentVulcan) uwagi.push(["blad", `VULCAN podaje dla tego eksportu ${pr(f.procentVulcan)} frekwencji, a tu wychodzi ${pr(f.frekwencja)} — sprawdź „Jak liczone są wpisy”.`]);
   cel.innerHTML = `
     ${uwagi.length ? `<ul class="komunikaty" style="margin-top:12px">${uwagi.map(([k, t]) => `<li class="${k}">${h(t)}</li>`).join("")}</ul>` : ""}
     <div class="kafle">
@@ -201,7 +220,7 @@ function renderWyniku() {
       <div class="kafel"><div class="l">Nieobecności usprawiedliwione</div><div class="v">${liczba(f.usprawiedliwiona)} h <small>${pr(f.procentUsprawiedliwionych)}</small></div></div>
       <div class="kafel"><div class="l">Zajęcia (obecności)</div><div class="v">${liczba(f.zajecia)} <small>(${liczba(f.obecny)})</small></div></div>
     </div>
-    <p class="uwagaMala">${f.dane ? `Wpisy ucznia w okresie: ${dmr(f.dane.od)}–${dmr(f.dane.do)}.` : ""} Procent nieobecności = godziny ÷ wszystkie zajęcia z wpisem frekwencji × 100.${f.pomin ? ` Poza rachunkiem („nie liczyć”): ${liczba(f.pomin)}.` : ""}</p>
+    <p class="uwagaMala">${f.procentVulcan != null && f.frekwencja === f.procentVulcan ? `<b style="color:var(--ok)">✓ zgodne z „% frekwencji” w zestawieniu VULCAN.</b> ` : ""}${f.dane ? `${f.tylkoOkresy ? "Okres eksportu" : "Wpisy ucznia w okresie"}: ${dmr(f.dane.od)}–${dmr(f.dane.do)}.` : ""} Procent nieobecności = godziny ÷ wszystkie zajęcia z wpisem frekwencji × 100.${f.pomin ? ` Poza rachunkiem („nie liczyć”): ${liczba(f.pomin)}.` : ""}</p>
     ${f.przedmioty.length ? `<details><summary>Z podziałem na przedmioty (${f.przedmioty.length})</summary>${tabelaPrzedmiotow(f)}</details>` : ""}`;
   druk.innerHTML = zaswiadczenie(u, f);
 }
@@ -214,7 +233,8 @@ function tabelaPrzedmiotow(f) {
 
 function zaswiadczenie(u, f) {
   const s = ustawienia;
-  const okres = f.bezDat ? "okres objęty eksportem z dziennika" : `od ${dmr(ui.od)} do ${dmr(ui.do)}`;
+  // Przy zestawieniach VULCAN okres to okres eksportów, nie wybrane daty (mogą być szersze).
+  const okres = f.bezDat ? "okres objęty eksportem z dziennika" : f.tylkoOkresy ? `od ${dmr(f.dane.od)} do ${dmr(f.dane.do)}` : `od ${dmr(ui.od)} do ${dmr(ui.do)}`;
   return `<div class="kartka">
     <div class="gora"><div class="szkola">${h(s.szkola) || "&nbsp;"}</div><div class="miejsce">${h(s.miejscowosc)}${s.miejscowosc ? ", " : ""}dnia ${dmr(s.data)}</div></div>
     <h3>ZAŚWIADCZENIE O FREKWENCJI</h3>
@@ -275,7 +295,7 @@ document.addEventListener("change", (e) => {
     const p = pliki[Number(t.dataset.plik)];
     if (t.dataset.pole === "arkusz") {
       p.arkusz = t.value;
-      p.tabela = rozpoznajTabele(p.arkusze[p.arkusz]) ?? { wiersz: 0, kolumny: {}, sumy: [], uklad: null };
+      p.tabela = rozpoznaj(p.arkusze[p.arkusz]) ?? pustaTabela();
     } else {
       // ręczny wybór kolumn albo wiersza nagłówka
       const kolumny = { ...p.tabela.kolumny };

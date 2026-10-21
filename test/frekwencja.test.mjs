@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DOMParser } from "@xmldom/xmldom";
-import { rodzajWpisu, rozpoznajTabele, czytajWpisy, domyslneRodzaje, polaczWpisy, listaUczniow, frekwencjaUcznia, zakresDat } from "../src/frekwencja.mjs";
+import { rodzajWpisu, rozpoznajTabele, czytajWpisy, rozpoznajMacierz, czytajMacierz, parametryZestawienia, domyslneRodzaje, polaczWpisy, listaUczniow, frekwencjaUcznia, zakresDat } from "../src/frekwencja.mjs";
 import { czytajCsv, czytajHtml, dekoduj } from "../src/tabele.mjs";
 
 // Eksport z tytułem i parametrami nad tabelą, jeden wiersz = jedna lekcja.
@@ -126,4 +126,57 @@ test("CSV (średnik, cudzysłowy, windows-1250) i tabela HTML", () => {
   assert.deepEqual(arkusz[0], ["Tytuł", "Tytuł"]);
   const wpisy = czytajWpisy(arkusz, rozpoznajTabele(arkusz));
   assert.deepEqual(wpisy, [{ uczen: "Testowy Adam", oddzial: "", data: "2026-09-01", przedmiot: "", lekcja: "", etykieta: "u", n: 1 }]);
+});
+
+// Układ „ZestawienieFrekwencjeNaLekcjachPrzedmiotow” (VULCAN): blok kolumn na przedmiot,
+// symbol z parą (liczba, %) jest w podstawie frekwencji, sam licznik (p) — nie.
+function zestawienie(okres) {
+  const blok = ["●", "●", "▬", "▬", "u", "u", "s", "s", "L4", "L4", "p", "% frekwencji"];
+  const komorki = (ob, nb, u, s, l4, p, proc) => [`${ob} `, "", `${nb} `, "", `${u} `, "", `${s} `, "", `${l4} `, "", String(p), proc];
+  return {
+    "Opis parametrów": [["Rok szkolny: 2026/2027;"], [`Badany okres: ${okres};`], ["Dziennik: 1A (T);"]],
+    "Frekwencja oddziałów": [
+      ["Dziennik", "Uczeń, nr w dzienniku", "Matematyka (mat)", ...Array(11).fill(""), "Historia (hist)", ...Array(11).fill(""), "Wszystkie wpisy", ...Array(11).fill("")],
+      ["", "", ...blok, ...blok, ...blok],
+      // „Wszystkie wpisy” ma jedną lekcję więcej niż przedmioty (zajęcia spoza listy) — jak w VULCAN
+      ["1A (T)", "Testowy Adam, nr 1", ...komorki(6, 2, 1, 1, 0, 3, "70%"), ...komorki(4, 0, 0, 0, 2, 0, "66,67%"), ...komorki(11, 2, 1, 1, 2, 3, "70,59%")],
+      ["1A (T)", "Przykładowa Ewa, nr 2", ...komorki(0, 0, 0, 0, 0, 0, "brak"), ...komorki(3, 0, 0, 0, 0, 0, "100%"), ...komorki(3, 0, 0, 0, 0, 0, "100%")],
+    ],
+  };
+}
+
+test("zestawienie VULCAN: podstawa jak w VULCAN, suma z „Wszystkie wpisy”, okres eksportu", () => {
+  const arkusze = zestawienie("01.09.2026 - 21.10.2026");
+  const { okres, dziennik } = parametryZestawienia(arkusze);
+  assert.deepEqual(okres, { od: "2026-09-01", do: "2026-10-21" });
+  assert.equal(dziennik, "1A (T)");
+  const t = rozpoznajMacierz(arkusze["Frekwencja oddziałów"]);
+  assert.equal(rozpoznajMacierz(arkusze["Opis parametrów"]), null);
+  assert.deepEqual(t.bloki.map((b) => [b.przedmiot, b.razem]), [["Matematyka", false], ["Historia", false], ["Wszystkie wpisy", true]]);
+  assert.deepEqual(t.pozaPodstawa, ["p"]);
+  const wpisy = czytajMacierz(arkusze["Frekwencja oddziałów"], t).map((w) => ({ ...w, zrodlo: "a.xlsx", okres }));
+  assert.deepEqual(listaUczniow(wpisy).map((u) => u.klucz), ["Przykładowa Ewa|1A (T)", "Testowy Adam|1A (T)"]);
+  const rodzaje = domyslneRodzaje([...new Set(wpisy.map((w) => w.etykieta))], "wpisy", t.pozaPodstawa);
+  assert.deepEqual(rodzaje, { "●": "obecny", "▬": "nieusprawiedliwiona", u: "usprawiedliwiona", s: "obecny", p: "pomin", L4: "usprawiedliwiona" });
+
+  const f = frekwencjaUcznia(wpisy, "Testowy Adam|1A (T)", okres, rodzaje);
+  assert.equal(f.zajecia, 17);
+  assert.equal(f.frekwencja, 70.59);
+  assert.equal(f.procentVulcan, 70.59);
+  assert.equal(f.nieusprawiedliwiona, 2);
+  assert.equal(f.procentNieusprawiedliwionych, 11.76);
+  assert.equal(f.pomin, 3);
+  assert.ok(f.tylkoOkresy);
+  assert.deepEqual(f.przedmioty.map((p) => [p.przedmiot, p.zajecia]), [["Historia", 6], ["Matematyka", 10], ["inne wpisy (poza listą przedmiotów)", 1]]);
+
+  // Stały okres eksportu: węższy wybór go nie obejmuje.
+  const wrzesien = frekwencjaUcznia(wpisy, "Testowy Adam|1A (T)", { od: "2026-09-01", do: "2026-09-30" }, rodzaje);
+  assert.equal(wrzesien.zajecia, 0);
+  assert.deepEqual(wrzesien.okresyPoza, [okres]);
+
+  // Drugi plik z tym samym okresem (np. ten sam eksport pod inną nazwą) — ostrzeżenie o podwójnym liczeniu.
+  const kopia = wpisy.map((w) => ({ ...w, zrodlo: "b.xlsx" }));
+  const podwojnie = frekwencjaUcznia([...wpisy, ...kopia], "Testowy Adam|1A (T)", okres, rodzaje);
+  assert.ok(podwojnie.nakladajaSie);
+  assert.equal(podwojnie.procentVulcan, null);
 });
