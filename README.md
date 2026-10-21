@@ -29,20 +29,22 @@ Zasady:
 
 Druga, osobna strona w tym samym projekcie: zaświadczenie o łącznej frekwencji ucznia ze wszystkich przedmiotów za wybrany okres.
 
-1. Wgraj eksport z VULCAN **„Zestawienie frekwencji na lekcjach przedmiotów”** (`ZestawienieFrekwencjeNaLekcjachPrzedmiotow*.xlsx`), zrobiony za okres, który ma objąć zaświadczenie. Okres ustawia się przy eksporcie (plik podaje go w „Opisie parametrów”), bo zestawienie zawiera same sumy, bez dat. Wynik jest liczony tak jak w VULCAN, a strona porównuje go z „% frekwencji” z pliku. Kilka klas wgrywa się kilkoma plikami.
-   - Działa też XLSX, CSV albo HTML z jednym wierszem na lekcję (uczeń, data, wpis frekwencji); wtedy okres wybierzesz dowolnie. Kolumny rozpoznają się same, a jeśli nie, wskażesz je w „Kolumny w plikach”.
-2. Wybierz ucznia (pole wyszukiwania + lista) i okres („od”, „do” albo przyciski miesięcy).
+1. Wgraj eksport z VULCAN **„Zestawienie frekwencji na lekcjach przedmiotów”** (`ZestawienieFrekwencjeNaLekcjachPrzedmiotow*.xlsx`). Kilka klas wgrywa się kilkoma plikami. Wynik jest liczony tak jak w VULCAN, a strona porównuje go z „% frekwencji” z pliku.
+   - Zestawienie ma same sumy za „Badany okres” ustawiony przy eksporcie, bez dat, więc nie da się z niego wyciąć części. Okres zaświadczenia składa się z wgranych eksportów. Wgraj raz eksporty miesięczne (wrzesień, październik…), a wybierzesz dowolny zakres miesięcy. Na niestandardowy okres (np. 15.09–21.10) zrób eksport dokładnie za ten okres.
+   - Strona sama dobiera eksporty, które nie zachodzą na siebie, więc nic nie liczy się podwójnie. Pokazuje też, za jakie dni brakuje danych. Na zaświadczeniu jest zawsze okres naprawdę objęty eksportami.
+   - Działa też XLSX, CSV albo HTML z jednym wierszem na lekcję (uczeń, data, wpis frekwencji); wtedy okres wybiera się co do dnia. Kolumny rozpoznają się same, a jeśli nie, wskażesz je w „Kolumny w plikach”.
+2. Wybierz ucznia (pole wyszukiwania + lista) i okres („od”, „do” albo przyciski eksportów i miesięcy).
 3. Wynik:
    - frekwencja = obecności ÷ (obecności + nieobecności) × 100,
    - godziny nieobecności nieusprawiedliwionej i ich procent wszystkich zajęć.
-4. Uzupełnij nagłówek szkoły i kliknij „Drukuj / zapisz jako PDF”.
+4. „Drukuj / zapisz jako PDF” — zaświadczenie na papierze firmowym ZSZ5 (jak w szablonie `.dotx`), „Wrocław, <data>”, bez miejsca na podpis (pieczątka).
 
 Jak liczone są wpisy, sprawdzisz w „Jak liczone są wpisy”:
 - podstawa = symbole, które VULCAN ma z kolumną % (●, ▬, u, s, su, ns, zw, L4, w, um, kw, ind); symbole bez kolumny % (np. p, k, z, ?) są „nie liczyć”,
 - obecność: ●, s, su; nieusprawiedliwiona: ▬; usprawiedliwiona: u, L4, zw,
 - „Wszystkie wpisy” obejmują też lekcje spoza listy przedmiotów — w podziale na przedmioty to wiersz „inne wpisy”.
 
-Każdy wpis można przestawić. Strona ma zablokowany dostęp do sieci (Content-Security-Policy), a dane uczniów są tylko w pamięci karty. W przeglądarce zapamiętywane są wyłącznie nagłówek szkoły i przypisanie rodzajów wpisów.
+Każdy wpis można przestawić. Strona ma zablokowany dostęp do sieci (Content-Security-Policy), a dane uczniów są tylko w pamięci karty. W przeglądarce zapamiętywane jest wyłącznie przypisanie rodzajów wpisów.
 
 ## Kod
 

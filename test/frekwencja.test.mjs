@@ -172,11 +172,51 @@ test("zestawienie VULCAN: podstawa jak w VULCAN, suma z „Wszystkie wpisy”, o
   // Stały okres eksportu: węższy wybór go nie obejmuje.
   const wrzesien = frekwencjaUcznia(wpisy, "Testowy Adam|1A (T)", { od: "2026-09-01", do: "2026-09-30" }, rodzaje);
   assert.equal(wrzesien.zajecia, 0);
-  assert.deepEqual(wrzesien.okresyPoza, [okres]);
+  assert.deepEqual(wrzesien.poza, [{ zrodlo: "a.xlsx", ...okres }]);
 
-  // Drugi plik z tym samym okresem (np. ten sam eksport pod inną nazwą) — ostrzeżenie o podwójnym liczeniu.
+  // Ten sam eksport pod inną nazwą nie liczy się podwójnie.
   const kopia = wpisy.map((w) => ({ ...w, zrodlo: "b.xlsx" }));
-  const podwojnie = frekwencjaUcznia([...wpisy, ...kopia], "Testowy Adam|1A (T)", okres, rodzaje);
-  assert.ok(podwojnie.nakladajaSie);
-  assert.equal(podwojnie.procentVulcan, null);
+  const dwa = frekwencjaUcznia([...wpisy, ...kopia], "Testowy Adam|1A (T)", okres, rodzaje);
+  assert.equal(dwa.zajecia, 17);
+  assert.equal(dwa.procentVulcan, 70.59);
+});
+
+test("okres zaświadczenia składa się z eksportów miesięcznych, bez podwójnego liczenia", () => {
+  const wczytaj = (plik, opis) => {
+    const arkusze = zestawienie(opis);
+    const t = rozpoznajMacierz(arkusze["Frekwencja oddziałów"]);
+    const { okres } = parametryZestawienia(arkusze);
+    return czytajMacierz(arkusze["Frekwencja oddziałów"], t).map((w) => ({ ...w, zrodlo: plik, okres }));
+  };
+  const wpisy = [
+    ...wczytaj("wrzesien.xlsx", "01.09.2026 - 30.09.2026"),
+    ...wczytaj("pazdziernik.xlsx", "01.10.2026 - 31.10.2026"),
+    ...wczytaj("listopad.xlsx", "02.11.2026 - 30.11.2026"),
+    ...wczytaj("calosc.xlsx", "01.09.2026 - 31.10.2026"),
+  ];
+  const rodzaje = domyslneRodzaje([...new Set(wpisy.map((w) => w.etykieta))], "wpisy", ["p"]);
+  const ucz = "Testowy Adam|1A (T)";
+
+  const pazdziernik = frekwencjaUcznia(wpisy, ucz, { od: "2026-10-01", do: "2026-10-31" }, rodzaje);
+  assert.equal(pazdziernik.zajecia, 17);
+  assert.deepEqual(pazdziernik.okresy, [{ od: "2026-10-01", do: "2026-10-31" }]);
+  assert.deepEqual(pazdziernik.poza.map((o) => o.zrodlo), ["calosc.xlsx"]);
+
+  // wrzesień–październik: jeden eksport za całość zamiast dwóch miesięcznych (te same dni, mniej plików)
+  const dwaMiesiace = frekwencjaUcznia(wpisy, ucz, { od: "2026-09-01", do: "2026-10-31" }, rodzaje);
+  assert.equal(dwaMiesiace.zajecia, 17);
+  assert.equal(dwaMiesiace.procentVulcan, 70.59);
+  assert.deepEqual(dwaMiesiace.luki, []);
+
+  // wrzesień–listopad: 1.11 to niedziela, więc okresy łączą się w jeden; trzy pliki niezachodzące
+  const trzy = frekwencjaUcznia(wpisy, ucz, { od: "2026-09-01", do: "2026-11-30" }, rodzaje);
+  assert.equal(trzy.zajecia, 34);
+  assert.deepEqual(trzy.okresy, [{ od: "2026-09-01", do: "2026-11-30" }]);
+  assert.equal(trzy.procentVulcan, null);
+
+  // brak października: luka i dwa osobne okresy na zaświadczeniu
+  const bezPazdziernika = wpisy.filter((w) => !["pazdziernik.xlsx", "calosc.xlsx"].includes(w.zrodlo));
+  const zLuka = frekwencjaUcznia(bezPazdziernika, ucz, { od: "2026-09-01", do: "2026-11-30" }, rodzaje);
+  assert.deepEqual(zLuka.okresy, [{ od: "2026-09-01", do: "2026-09-30" }, { od: "2026-11-02", do: "2026-11-30" }]);
+  assert.deepEqual(zLuka.luki, [{ od: "2026-10-01", do: "2026-11-01" }]);
 });

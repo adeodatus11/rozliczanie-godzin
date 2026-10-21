@@ -185,20 +185,80 @@ function wskazniki(s) {
   return s;
 }
 
+const dodajDni = (iso, n) => {
+  const d = new Date(iso + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const liczbaDni = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5) + 1;
+/** Luka bez dni od poniedziałku do piątku (sam weekend) nie przerywa okresu. */
+function tylkoWeekend(a, b) {
+  for (let d = a; d <= b; d = dodajDni(d, 1)) if (![0, 6].includes(new Date(d + "T12:00:00Z").getUTCDay())) return false;
+  return true;
+}
+const lepszy = (a, b) => a.dni > b.dni || (a.dni === b.dni && a.ile < b.ile);
+
+/**
+ * Zestawienie VULCAN ma stały okres i same sumy — nie da się go pociąć na dni.
+ * Z eksportów ucznia mieszczących się w wybranym okresie bierze niezachodzące
+ * na siebie, pokrywające najwięcej dni (przy remisie: mniej plików). Dzięki temu
+ * eksporty miesięczne składają się w dowolny zakres miesięcy, a eksport za
+ * całość obok miesięcznych nie liczy się podwójnie.
+ */
+function dobierzEksporty(kawalki) {
+  const k = [...kawalki].sort((a, b) => a.od.localeCompare(b.od) || a.do.localeCompare(b.do));
+  const pusty = { dni: 0, ile: 0, lista: [] };
+  const najlepszy = [];
+  k.forEach((x, i) => {
+    let poprzedni = pusty;
+    for (let j = 0; j < i; j++) if (k[j].do < x.od && lepszy(najlepszy[j], poprzedni)) poprzedni = najlepszy[j];
+    najlepszy[i] = { dni: poprzedni.dni + liczbaDni(x.od, x.do), ile: poprzedni.ile + 1, lista: [...poprzedni.lista, x] };
+  });
+  return najlepszy.reduce((a, b) => (lepszy(b, a) ? b : a), pusty).lista;
+}
+
+/** Sąsiadujące okresy (także przez weekend) łączy w jeden. */
+function scalOkresy(okresy) {
+  const out = [];
+  for (const o of [...okresy].sort((a, b) => a.od.localeCompare(b.od))) {
+    const ost = out.at(-1);
+    if (ost && (o.od <= dodajDni(ost.do, 1) || tylkoWeekend(dodajDni(ost.do, 1), dodajDni(o.od, -1)))) ost.do = o.do > ost.do ? o.do : ost.do;
+    else out.push({ od: o.od, do: o.do });
+  }
+  return out;
+}
+
+/** Dni robocze z [od, do] nieobjęte okresami, jako przedziały. */
+function luki(od, doDnia, okresy) {
+  const out = [];
+  let d = od;
+  for (const o of okresy) {
+    if (o.od > d && !tylkoWeekend(d, dodajDni(o.od, -1))) out.push({ od: d, do: dodajDni(o.od, -1) });
+    if (o.do >= d) d = dodajDni(o.do, 1);
+  }
+  if (d <= doDnia && !tylkoWeekend(d, doDnia)) out.push({ od: d, do: doDnia });
+  return out;
+}
+
 /**
  * Frekwencja ucznia ze wszystkich przedmiotów w okresie [od, do] (włącznie).
  *  frekwencja                  — obecności / zajęcia × 100,
  *  procentNieusprawiedliwionych — godziny nieusprawiedliwione / zajęcia × 100.
- * Wpisy z datą liczą się, gdy data jest w okresie. Zestawienie VULCAN ma stały
- * okres eksportu: liczy się tylko, gdy cały mieści się w wybranym okresie
- * (inaczej trafia do okresyPoza). Gdy plik ma sumę ucznia („Wszystkie wpisy”),
- * wynik jest z niej, a przedmioty służą do rozbicia.
+ * Wpisy z datą liczą się, gdy data jest w okresie. Zestawienia VULCAN (stały
+ * okres eksportu) dobiera dobierzEksporty; wynik podaje okresy, które naprawdę
+ * objął (okresy), dni bez danych (luki) i eksporty wystające poza wybrane daty
+ * (poza). Gdy plik ma sumę ucznia („Wszystkie wpisy”), wynik jest z niej,
+ * a przedmioty służą do rozbicia.
  */
 export function frekwencjaUcznia(wpisy, klucz, { od, do: doDnia }, rodzaje) {
   const wZakresie = (a, b) => (!od || a >= od) && (!doDnia || b <= doDnia);
   const ucznia = wpisy.filter((w) => kluczUcznia(w) === klucz);
-  const wOkresie = ucznia.filter((w) => (w.data ? wZakresie(w.data, w.data) : w.okres ? wZakresie(w.okres.od, w.okres.do) : true));
-  const okresy = (ws) => [...new Map(ws.filter((w) => !w.data && w.okres).map((w) => [`${w.okres.od}|${w.okres.do}`, w.okres])).values()].sort((a, b) => a.od.localeCompare(b.od));
+  const kluczEksportu = (o) => `${o.zrodlo}|${o.od}|${o.do}`;
+  const eksporty = new Map();
+  for (const w of ucznia) if (!w.data && w.okres) eksporty.set(kluczEksportu({ zrodlo: w.zrodlo, ...w.okres }), { zrodlo: w.zrodlo, ...w.okres });
+  const pasujace = [...eksporty.values()].filter((o) => wZakresie(o.od, o.do));
+  const wybrane = new Set(dobierzEksporty(pasujace).map(kluczEksportu));
+  const wOkresie = ucznia.filter((w) => (w.data ? wZakresie(w.data, w.data) : w.okres ? wybrane.has(kluczEksportu({ zrodlo: w.zrodlo, ...w.okres })) : true));
 
   const zrodla = new Map();
   for (const w of wOkresie) (zrodla.get(w.zrodlo) ?? zrodla.set(w.zrodlo, []).get(w.zrodlo)).push(w);
@@ -214,27 +274,21 @@ export function frekwencjaUcznia(wpisy, klucz, { od, do: doDnia }, rodzaje) {
     if (POLA.some((k) => reszta[k] > 0)) przedmioty.push({ przedmiot: "inne wpisy (poza listą przedmiotów)", ...wskazniki(reszta) });
   }
 
-  const uzyteOkresy = okresy(wOkresie);
+  const tylkoOkresy = wOkresie.length > 0 && wOkresie.every((w) => !w.data && w.okres);
+  const okresy = scalOkresy(pasujace.filter((o) => wybrane.has(kluczEksportu(o))));
   const vulcan = [...new Set(doSumy.filter((w) => w.razem).map((w) => w.procentVulcan))];
   return {
     ...wynik,
     przedmioty,
     dane: zakresDat(wOkresie),
-    okresy: uzyteOkresy,
-    okresyPoza: okresy(ucznia).filter((o) => !uzyteOkresy.some((u) => u.od === o.od && u.do === o.do)),
-    nakladajaSie: nakladajaSie(wOkresie),
-    tylkoOkresy: wOkresie.length > 0 && wOkresie.every((w) => !w.data && w.okres),
+    okresy,
+    luki: eksporty.size && od && doDnia ? luki(od, doDnia, okresy) : [],
+    poza: [...eksporty.values()].filter((o) => !wZakresie(o.od, o.do) && (!doDnia || o.od <= doDnia) && (!od || o.do >= od)),
+    tylkoOkresy,
     bezDat: wOkresie.some((w) => !w.data && !w.okres),
     procentVulcan: zrodla.size === 1 && vulcan.length === 1 ? vulcan[0] : null,
     nieprzypisaneEtykiety: [...new Set(doSumy.filter((w) => !rodzaje[w.etykieta]).map((w) => w.etykieta))],
   };
-}
-
-/** Czy zestawienia z różnych plików mają wspólne dni (ten sam okres wgrany dwa razy też). */
-function nakladajaSie(wpisy) {
-  const pary = [...new Map(wpisy.filter((w) => !w.data && w.okres).map((w) => [`${w.zrodlo}|${w.okres.od}|${w.okres.do}`, w.okres])).values()];
-  pary.sort((a, b) => a.od.localeCompare(b.od));
-  return pary.some((o, i) => i > 0 && o.od <= pary[i - 1].do);
 }
 
 /** Okres i dziennik z arkusza „Opis parametrów” zestawień VULCAN. */
