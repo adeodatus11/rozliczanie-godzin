@@ -25,6 +25,25 @@ Zasady:
 - IND i KKZ są liczone osobno, poza pensum.
 - Prywatny dzień wolny nie obniża pensum.
 
+## Zaświadczenia o frekwencji (`frekwencja.html`)
+
+Druga, osobna strona w tym samym projekcie: zaświadczenie o łącznej frekwencji ucznia ze wszystkich przedmiotów za wybrany okres.
+
+1. Wgraj eksport z VULCAN **„Zestawienie frekwencji na lekcjach przedmiotów”** (`ZestawienieFrekwencjeNaLekcjachPrzedmiotow*.xlsx`), zrobiony za okres, który ma objąć zaświadczenie. Okres ustawia się przy eksporcie (plik podaje go w „Opisie parametrów”), bo zestawienie zawiera same sumy, bez dat. Wynik jest liczony tak jak w VULCAN, a strona porównuje go z „% frekwencji” z pliku. Kilka klas wgrywa się kilkoma plikami.
+   - Działa też XLSX, CSV albo HTML z jednym wierszem na lekcję (uczeń, data, wpis frekwencji); wtedy okres wybierzesz dowolnie. Kolumny rozpoznają się same, a jeśli nie, wskażesz je w „Kolumny w plikach”.
+2. Wybierz ucznia (pole wyszukiwania + lista) i okres („od”, „do” albo przyciski miesięcy).
+3. Wynik:
+   - frekwencja = obecności ÷ (obecności + nieobecności) × 100,
+   - godziny nieobecności nieusprawiedliwionej i ich procent wszystkich zajęć.
+4. Uzupełnij nagłówek szkoły i kliknij „Drukuj / zapisz jako PDF”.
+
+Jak liczone są wpisy, sprawdzisz w „Jak liczone są wpisy”:
+- podstawa = symbole, które VULCAN ma z kolumną % (●, ▬, u, s, su, ns, zw, L4, w, um, kw, ind); symbole bez kolumny % (np. p, k, z, ?) są „nie liczyć”,
+- obecność: ●, s, su; nieusprawiedliwiona: ▬; usprawiedliwiona: u, L4, zw,
+- „Wszystkie wpisy” obejmują też lekcje spoza listy przedmiotów — w podziale na przedmioty to wiersz „inne wpisy”.
+
+Każdy wpis można przestawić. Strona ma zablokowany dostęp do sieci (Content-Security-Policy), a dane uczniów są tylko w pamięci karty. W przeglądarce zapamiętywane są wyłącznie nagłówek szkoły i przypisanie rodzajów wpisów.
+
 ## Kod
 
 | Plik | Co robi |
@@ -35,13 +54,14 @@ Zasady:
 | `src/konfiguracja.mjs`, `src/arkusz.mjs` | przeniesienie konfiguracji z dotychczasowego arkusza |
 | `src/stan.mjs`, `src/kalendarz.mjs`, `src/eksport.mjs` | plik rozliczenia, kalendarz 2026/27, eksport XLSX |
 | `src/xlsx.mjs`, `src/zip.mjs` | czytnik i zapis XLSX bez bibliotek (z repozytorium `zastepstwa`) |
-| `app/` | interfejs; `build.mjs` składa go w jeden plik `dist/index.html` |
+| `src/frekwencja.mjs`, `src/tabele.mjs` | zaświadczenia: rozpoznanie tabeli frekwencji, rodzaje wpisów, rachunek okresu; odczyt CSV i tabel HTML |
+| `app/` | interfejsy; `build.mjs` składa każdy w jeden plik: `dist/index.html` i `dist/frekwencja.html` |
 
 ```sh
 npm install
 npm test               # przykłady z załączników do szkolenia i przypadki na danych zmyślonych
-npm run build          # dist/index.html
-npm run aplikacja      # dodatkowo kopia ../aplikacja/rozliczanie-godzin.html
+npm run build          # dist/index.html, dist/frekwencja.html
+npm run aplikacja      # dodatkowo kopie ../aplikacja/rozliczanie-godzin.html i ../aplikacja/frekwencja.html
 ```
 
 Folder `lokalne/` (porównania na prawdziwych danych, raporty) jest wyłączony z repozytorium w `.gitignore`. Nie dodawaj do repozytorium eksportów z dziennika, plików rozliczenia ani raportów.

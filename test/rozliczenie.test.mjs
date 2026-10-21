@@ -93,3 +93,22 @@ test("plik stanu i eksport XLSX", async () => {
   assert.equal(sheets["Zestawienie 2026-09"][1][0], "Kowalska Anna");
   assert.match(sheets.Decyzje[1].join("|"), /zmiana w planie/);
 });
+
+test("koniec zatrudnienia („do”) odlicza pensum i nie zostawia dni do wyjaśnienia", () => {
+  const s = stanTestowy();
+  s.nauczyciele["kowalska anna"].do = "2026-09-10";
+  const [w] = rozliczWszystkich(s, "2026-09");
+  const tydzien = w.tygodnie.find((t) => t.poniedzialek === "2026-09-07");
+  assert.equal(tydzien.pensum, 14.4, "piątek 11.09 po ustaniu zatrudnienia");
+  assert.equal(w.tygodnie.find((t) => t.poniedzialek === "2026-09-14").pensum, 0);
+  assert.ok(!analizaDnia(s, "kowalska anna", "2026-09-11").doWyjasnienia);
+});
+
+test("zastępstwo z formą płatności spoza listy jest do wyjaśnienia", () => {
+  const s = stanTestowy();
+  dodajZestawienie(s, { okres: { od: "2026-09-07", do: "2026-09-11" }, nieobecnosci: {}, zastepstwa: { "kowalska anna": { "2026-09-08": [{ lekcja: 6, forma: "Inna forma" }] } } }, "zestawienie");
+  const wt = analizaDnia(s, "kowalska anna", "2026-09-08");
+  assert.equal(wt.godziny, 5);
+  assert.ok(wt.doWyjasnienia);
+  assert.match(wt.uwagi.join(), /nieznaną formą płatności: lekcja 6 „Inna forma”/);
+});

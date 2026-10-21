@@ -75,7 +75,7 @@ export function rozliczTydzien(n, { poniedzialekIso, miesiac, realizacja = {}, k
     let odliczenie = decyzja.odliczenie ?? null;
     if (!odliczenie && !data.startsWith(miesiac)) odliczenie = "innyMiesiac";
     if (!odliczenie && kalendarz[data]) odliczenie = "wolne";
-    if (!odliczenie && n.od && data < n.od) odliczenie = "przedZatrudnieniem";
+    if (!odliczenie && ((n.od && data < n.od) || (n.do && data > n.do))) odliczenie = "przedZatrudnieniem";
     const dzienPracy = n.dniPracy.includes(dt);
     let godziny = 0;
     if (!odliczenie) {
