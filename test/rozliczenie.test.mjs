@@ -9,6 +9,7 @@ import { analizaDnia, rozliczWszystkich } from "../src/rozliczenie.mjs";
 import { realizacjaDzienna, lekcjeZTematow, znajdzOsobe, kluczOsoby, planZXml, planOdZXml } from "../src/wejscie.mjs";
 import { eksportMiesiaca } from "../src/eksport.mjs";
 import { raportNauczyciela } from "../src/raport.mjs";
+import { rozdzialLekcji, podzielProporcjonalnie } from "../src/rozdzialy.mjs";
 import { readWorkbook } from "../src/xlsx.mjs";
 
 const NAGLOWEK = ["Szkoła", "Okres klasyfikacyjny", "Dziennik", "Grupa", "Pseudonim Ucznia", "Przedmiot", "Nauczyciel", "Nauczyciel wspomagający", "Temat", "Data realizacji", "Numer pory lekcji", "Zastępstwo"];
@@ -110,7 +111,7 @@ test("plik stanu i eksport XLSX", async () => {
   assert.throws(() => wczytajStan('{"x":1}'));
   const bajty = await eksportMiesiaca(s, "2026-09", rozliczWszystkich(s, "2026-09"));
   const { sheets } = await readWorkbook(bajty, DOMParser);
-  assert.deepEqual(Object.keys(sheets), ["Zestawienie 2026-09", "Tygodnie", "Dni", "Decyzje", "Uwagi"]);
+  assert.deepEqual(Object.keys(sheets), ["Zestawienie 2026-09", "Tygodnie", "Dni", "Decyzje", "Rozdziały", "Uwagi"]);
   assert.deepEqual(sheets.Uwagi[0], ["Data", "Nauczyciel", "Godziny", "Status", "Uwagi automatyczne"]);
   assert.equal(sheets["Zestawienie 2026-09"][1][0], "Kowalska Anna");
   assert.match(sheets.Decyzje[1].join("|"), /zmiana w planie/);
@@ -177,7 +178,7 @@ test("informacje o zastępstwach: kontrola form płatności i zastępstwo za bra
   };
   assert.equal(rodzajSkoroszytu(arkusze), "zastepstwa");
   const z = czytajInformacjeOZastepstwach(arkusze);
-  assert.deepEqual(z.zastepstwa, { "kowalska anna": { "2026-09-08": [{ lekcja: 6, forma: "Godzina do zliczenia", skutek: null, zaKogo: "Nowak Jan", oddzial: "2B" }] } });
+  assert.deepEqual(z.zastepstwa, { "kowalska anna": { "2026-09-08": [{ lekcja: 6, forma: "Godzina do zliczenia", skutek: null, przedmiot: "Fizyka", zaKogo: "Nowak Jan", oddzial: "2B" }] } });
   assert.ok(!JSON.stringify(z).includes("Uczeń"), "bez dzienników zajęć innych");
 
   // bez zbiorczego zestawienia forma płatności pochodzi z informacji; własna lekcja 2 odwołana
@@ -255,7 +256,7 @@ test("raport nauczyciela: pozycje do wypłaty, tygodnie i lista doraźnych zast�
   assert.equal(r.pozycje[1].godziny, 1);
   assert.equal(r.pozycje[2].godziny, 1, "IND w środę");
   assert.equal(r.razem, w.razem);
-  assert.deepEqual(r.dorazne, [{ data: "2026-09-08", lekcja: 6, zaKogo: "Nowak Jan", oddzial: "2B", opis: null }]);
+  assert.deepEqual(r.dorazne, [{ data: "2026-09-08", lekcja: 6, zaKogo: "Nowak Jan", oddzial: "2B", rozdzial: "80117", opis: null }]);
   const t = r.tygodnie.find((x) => x.od === "2026-09-07");
   assert.equal(t.do, "2026-09-11");
   assert.equal(t.suma, 21);
@@ -265,5 +266,38 @@ test("raport nauczyciela: pozycje do wypłaty, tygodnie i lista doraźnych zast�
   const pt = r.dni.find((d) => d.data === "2026-09-11");
   assert.ok(pt.doWyjasnienia);
   assert.equal(r.doWyjasnienia, w.doWyjasnienia);
+});
+
+test("rozdziały: technikum 80115, branżowa I 80117, branżowa II — ogólne 80118, zawodowe KKZ", () => {
+  assert.equal(rozdzialLekcji({ oddzial: "1TFA" }), "80115");
+  assert.equal(rozdzialLekcji({ oddzial: "2TH|gr1" }), "80115");
+  assert.equal(rozdzialLekcji({ oddzial: "3KS" }), "80117");
+  assert.equal(rozdzialLekcji({ oddzial: "1B", przedmiot: "Język angielski" }), "80118");
+  assert.equal(rozdzialLekcji({ oddzial: "3B", przedmiot: "Język angielski zawodowy" }), "KKZ");
+  assert.equal(rozdzialLekcji({ oddzial: "3B", przedmiot: "Projektowanie fryzur" }), "KKZ");
+  assert.equal(rozdzialLekcji({ szkola: "Technikum nr 5", oddzial: "1A" }), "80115");
+  assert.equal(rozdzialLekcji({ szkola: "Branżowa Szkoła II stopnia nr 5", oddzial: "1A", przedmiot: "Matematyka" }), "80118");
+  assert.equal(rozdzialLekcji({ szkola: "Branżowa Szkoła I stopnia nr 5", oddzial: "1A" }), "80117");
+  assert.equal(rozdzialLekcji({ oddzial: "" }), null);
+  // największe reszty: części sumują się do całości
+  assert.deepEqual(podzielProporcjonalnie(30, { 80115: 6, 80117: 19 }), { 80115: 7, 80117: 23 });
+  assert.deepEqual(podzielProporcjonalnie(21, { 80115: 11, 80117: 12 }), { 80115: 10, 80117: 11 });
+});
+
+test("podział godzin nauczyciela na rozdziały: ponadwymiarowe proporcjonalnie, doraźne wg oddziału", () => {
+  const s = stanTestowy();
+  // wtorek–czwartek lekcje 4–5 w technikum, reszta w 1A (branżowa I)
+  for (const d of ["2026-09-08", "2026-09-09", "2026-09-10"]) s.realizacja["kowalska anna"][d].rozdzialy = { 80117: 3, 80115: 2 };
+  for (const d of ["2026-09-07", "2026-09-11"]) s.realizacja["kowalska anna"][d].rozdzialy = { 80117: s.realizacja["kowalska anna"][d].lekcje.length };
+  dodajZestawienie(s, { okres: { od: "2026-09-07", do: "2026-09-11" }, nieobecnosci: {}, zastepstwa: { "kowalska anna": { "2026-09-08": [{ lekcja: 6, forma: "Dodatkowo płatne", oddzial: "3B", przedmiot: "Matematyka" }] } } }, "zestawienie");
+  delete s.realizacja["kowalska anna"]["2026-09-08"].rozdzialyZast;
+  const [w] = rozliczWszystkich(s, "2026-09");
+  const p = w.rozdzialy.podzial;
+  assert.equal(w.rozdzialy.zrodlo, "lekcje w miesiącu");
+  assert.deepEqual(w.rozdzialy.podstawa, { 80117: 15, 80115: 6 });
+  assert.equal(p["80115"].ponadwymiarowe + p["80117"].ponadwymiarowe, w.doWyplaty);
+  assert.equal(p["80118"].dorazne, 1, "zastępstwo z matematyki w 3B (branżowa II, ogólne)");
+  assert.equal(Object.values(p).reduce((a, x) => a + x.razem, 0), w.razem);
+  assert.ok(!p["?"]);
 });
 

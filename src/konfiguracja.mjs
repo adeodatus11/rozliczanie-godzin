@@ -2,7 +2,7 @@
 // albo PLANOWE. To punkt startowy — w aplikacji każdą wartość można poprawić.
 import { czytajArkusz } from "./arkusz.mjs";
 import { r2, rozliczMiesiac, pensumNaDzien, dzienTygodnia } from "./silnik.mjs";
-import { znajdzOsobe } from "./wejscie.mjs";
+import { znajdzOsobe, kluczOsoby } from "./wejscie.mjs";
 
 const liczba = (v) => (v === "" || v == null || isNaN(Number(v)) ? null : Number(v));
 const najczestsza = (xs) => {
@@ -60,6 +60,18 @@ export function konfiguracjaZArkusza(arkusze, { plan = null } = {}) {
     const znizka = /zniżka/i.test(o.naglowek);
     if (znizka) n.uwagi = "zniżka — kadra kierownicza";
     wynik[o.osoba] = n;
+  }
+  // Podział na rozdziały z „planowe rozl. wg rozdziałów” — proporcje dla osób bez planu lekcji (np. specjaliści).
+  const rozdz = arkusze["planowe rozl. wg rozdziałów"];
+  if (rozdz) {
+    const nag = rozdz[0].map((x) => String(x).trim());
+    const kolumny = ["80115", "80117", "80118", "KKZ"].map((r) => [r, nag.indexOf(r)]).filter(([, i]) => i >= 0);
+    const klucze = Object.keys(wynik);
+    for (const w of rozdz.slice(1)) {
+      const k = w[0] && znajdzOsobe(kluczOsoby(w[0]), klucze);
+      const wagi = Object.fromEntries(kolumny.map(([r, i]) => [r, liczba(w[i]) ?? 0]).filter(([, v]) => v > 0));
+      if (k && Object.keys(wagi).length) wynik[k].rozdzialy = wagi;
+    }
   }
   return wynik;
 }

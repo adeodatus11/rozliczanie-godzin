@@ -15,7 +15,7 @@ function tabela(wiersze, wymagane, nazwa) {
 
 /**
  * {okres: {od, do}, nieobecnosci: {osoba: {data: {powody: [], lekcje: []}}},
- *  zastepstwa: {zastępca: {data: [{lekcja, forma, skutek, zaKogo, oddzial}]}}}
+ *  zastepstwa: {zastępca: {data: [{lekcja, forma, skutek, przedmiot, zaKogo, oddzial}]}}}
  */
 export function czytajZestawienie(arkusze) {
   const nieobecnosci = {};
@@ -47,6 +47,7 @@ export function czytajZestawienie(arkusze) {
       lekcja: Number(w("Numer lekcji")),
       forma: w("Forma płatności") || null,
       skutek: w("Skutek nieobecności") || null,
+      przedmiot: w("Realizowana nazwa zajęć") || w("Nazwa zajęć") || null,
       zaKogo: w("Prowadzący").replace(/\s*\[.*?\]\s*$/, ""),
       oddzial: w("Oddział/dziennik/grupa/miejsce dyżuru z podziałem") || w("Oddział/dziennik/grupa/miejsce dyżuru"),
     });
@@ -86,7 +87,7 @@ export function czytajInformacjeOZastepstwach(arkusze) {
     if (!data || !lekcja) continue;
     daty.push(data);
     if (!forma || forma === "-") continue; // „Uczniowie przychodzą później”, „Przeniesiona” itp. — bez zastępcy
-    ((zastepstwa[kluczOsoby(pole("Zastępca"))] ??= {})[data] ??= []).push({ lekcja, forma, skutek: null, zaKogo: pole("Nauczyciel/wakat"), oddzial: pole("Oddział") });
+    ((zastepstwa[kluczOsoby(pole("Zastępca"))] ??= {})[data] ??= []).push({ lekcja, forma, skutek: null, przedmiot: pole("Przedmiot") || null, zaKogo: pole("Nauczyciel/wakat"), oddzial: pole("Oddział") });
   }
   return { okres: okresZOpisu(arkusze, daty), zastepstwa };
 }
