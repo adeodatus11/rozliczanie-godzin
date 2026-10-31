@@ -24,6 +24,7 @@ Cała aplikacja to jedna strona. Wszystko dzieje się w przeglądarce: wgrane pl
 
 Zasady:
 - Do sumy dnia wchodzą lekcje z tematem i zastępstwa „Godzina do zliczenia”. Inne formy (np. „W ramach pensum”) trafiają do wyjaśnienia.
+- „Godzin do zliczenia” ma być tyle, ile odwołanych lekcji nauczyciela w tym dniu: lekcji z planu (po przeniesieniach) bez tematu, poza lekcjami, na których sam był nieobecny. Gdy jest ich więcej, nadmiar trafia do wyjaśnienia (sprawdź formę płatności); gdy mniej, niepokryte odwołane lekcje też.
 - „Dodatkowo płatne” to doraźne zastępstwa, liczone osobno.
 - IND i KKZ są liczone osobno, poza pensum.
 - Prywatny dzień wolny nie obniża pensum.

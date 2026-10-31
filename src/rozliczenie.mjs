@@ -76,13 +76,21 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
   if (decyzja?.zPlanu) godziny = zbior(tematy, doSumy, plan ?? []).length;
   if (decyzja?.godziny != null) godziny = decyzja.godziny;
 
-  const brakujace = plan && n.tryb === "tematy" && !brakDanych ? plan.filter((p) => !tematy.includes(p) && !doSumy.includes(p)) : [];
+  // Lekcje z planu bez tematu, poza tymi, na których nauczyciel był nieobecny, to lekcje odwołane (np. nieobecny
+  // oddział). „Godzin do zliczenia” ma być tyle, ile odwołanych lekcji — nie więcej (art. 42 ust. 2cb).
+  const sprawdzPlan = plan && n.tryb === "tematy" && !brakDanych;
+  const odwolane = sprawdzPlan ? plan.filter((p) => !tematy.includes(p) && !nieob?.lekcje.includes(p)) : [];
+  const niepokryte = Math.max(0, odwolane.length - doSumy.length);
+  const nadmiarDoZliczenia = sprawdzPlan ? Math.max(0, doSumy.length - odwolane.length) : 0;
+  const brakujace = niepokryte ? odwolane : [];
   const brakujacePrzeniesione = brakujace.filter((p) => przen?.na.includes(p) && !planBazowy.includes(p));
   const brakujaceZPlanu = brakujace.filter((p) => !brakujacePrzeniesione.includes(p));
+  const pokrycie = doSumy.length && niepokryte ? ` (odwołanych ${odwolane.length}, „godzin do zliczenia” ${doSumy.length} — brakuje ${niepokryte})` : "";
   const uwagi = [];
   if (nieob) uwagi.push(`nieobecność: ${nieob.powody.join(", ")}${nieob.lekcje.length ? ` (lekcje ${nieob.lekcje.join(",")})` : ""}`);
-  if (brakujaceZPlanu.length) uwagi.push(`bez tematu lekcje z planu: ${brakujaceZPlanu.join(",")}`);
-  if (brakujacePrzeniesione.length) uwagi.push(`bez tematu lekcje przeniesione na ten dzień: ${brakujacePrzeniesione.join(",")}`);
+  if (brakujaceZPlanu.length) uwagi.push(`bez tematu lekcje z planu: ${brakujaceZPlanu.join(",")}${brakujacePrzeniesione.length ? "" : pokrycie}`);
+  if (brakujacePrzeniesione.length) uwagi.push(`bez tematu lekcje przeniesione na ten dzień: ${brakujacePrzeniesione.join(",")}${pokrycie}`);
+  if (nadmiarDoZliczenia) uwagi.push(`„godzin do zliczenia” ${doSumy.length} (lekcje ${doSumy.join(",")}), a odwołanych lekcji z planu ${odwolane.length}${odwolane.length ? ` (${odwolane.join(",")})` : ""} — ${nadmiarDoZliczenia} ponad odwołane: sprawdź formę płatności`);
   if (nieznane.length && zestawienieWczytane) uwagi.push(`zastępstwo bez formy płatności w zestawieniu: lekcja ${nieznane.map((z) => z.lekcja).join(",")}`);
   if (nieznane.length && !zestawienieWczytane) uwagi.push(`zastępstwo — forma płatności nieznana (wgraj zestawienie zmian): lekcja ${nieznane.map((z) => z.lekcja).join(",")}`);
   if (obcaForma.length) uwagi.push(`zastępstwo z nieznaną formą płatności: ${obcaForma.map((z) => `lekcja ${z.lekcja} „${z.forma}”`).join(", ")}`);
@@ -103,7 +111,7 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
   }
   const odliczonyKalendarzem = kal && !kal.czesciowy;
   const zatrudniony = (!n.od || data >= n.od) && (!n.do || data <= n.do);
-  const doWyjasnienia = !decyzja && !odliczonyKalendarzem && zatrudniony && (Boolean(nieobIstotna) || brakujace.length > 0 || (nieznane.length > 0 && zestawienieWczytane) || obcaForma.length > 0 || rozneFormy.length > 0 || bezTematu.length > 0 || Boolean(kal?.czesciowy));
+  const doWyjasnienia = !decyzja && !odliczonyKalendarzem && zatrudniony && (Boolean(nieobIstotna) || brakujace.length > 0 || nadmiarDoZliczenia > 0 || (nieznane.length > 0 && zestawienieWczytane) || obcaForma.length > 0 || rozneFormy.length > 0 || bezTematu.length > 0 || Boolean(kal?.czesciowy));
   return {
     data,
     plan,
