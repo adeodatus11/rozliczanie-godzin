@@ -3,9 +3,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DOMParser } from "@xmldom/xmldom";
-import { nowyStan, dodajPlan, dodajTematy, dodajZestawienie, ustawDecyzje, zapiszStan, wczytajStan } from "../src/stan.mjs";
+import { nowyStan, dodajPlan, dodajTematy, dodajZestawienie, dodajInformacje, ustawDecyzje, zapiszStan, wczytajStan } from "../src/stan.mjs";
+import { czytajPrzeniesienia, czytajInformacjeOZastepstwach, rodzajSkoroszytu } from "../src/zmiany.mjs";
 import { analizaDnia, rozliczWszystkich } from "../src/rozliczenie.mjs";
-import { realizacjaDzienna, lekcjeZTematow, znajdzOsobe, kluczOsoby } from "../src/wejscie.mjs";
+import { realizacjaDzienna, lekcjeZTematow, znajdzOsobe, kluczOsoby, planZXml, planOdZXml } from "../src/wejscie.mjs";
 import { eksportMiesiaca } from "../src/eksport.mjs";
 import { readWorkbook } from "../src/xlsx.mjs";
 
@@ -32,6 +33,25 @@ test("dopasowanie osób: inne zapisy tego samego nazwiska", () => {
   assert.equal(znajdzOsobe(kluczOsoby("Lis Maria"), klucze), "lis-kowalczyk maria");
   assert.equal(znajdzOsobe(kluczOsoby("Zając ks. Jan [ZJ]"), klucze), "zając jan");
   assert.equal(znajdzOsobe(kluczOsoby("Wróbel Adam"), klucze), null);
+});
+
+test("plan XML w formacie planNauczycieli: dni i pory, data obowiązywania", () => {
+  const xml = `<?xml version='1.0' encoding='utf-8'?>
+<planNauczycieli typ="wzorcowy" obowiazujeOd="2026-09-07">
+  <godziny><godzina nr="1" od="8:00" do="8:45" /></godziny>
+  <nauczyciel skrot="AK" imie="Anna" nazwisko="Kowalska">
+    <podsumowanie lekcjiTygodniowo="4" />
+    <lekcja dzien="Wtorek" godzina="2" przedmiot="Matematyka" oddzial="1A" grupa="gr1" />
+    <lekcja dzien="Wtorek" godzina="2" przedmiot="Matematyka" oddzial="1A" grupa="gr2" />
+    <lekcja dzien="Wtorek" godzina="1" przedmiot="Matematyka" oddzial="2B" />
+    <lekcja dzien="Środa" godzina="7" przedmiot="Fizyka" oddzial="3C" />
+    <dyzur dzien="Wtorek" przerwaPoLekcji="5" miejsce="parter" />
+  </nauczyciel>
+  <nauczyciel skrot="v1" imie="matematyka" nazwisko="vacat1"><podsumowanie lekcjiTygodniowo="0" /></nauczyciel>
+</planNauczycieli>`;
+  assert.deepEqual(planZXml(xml, DOMParser), { "kowalska anna": { 2: [1, 2], 3: [7] } });
+  assert.equal(planOdZXml(xml), "2026-09-07");
+  assert.equal(planOdZXml(`<timetable><teachers/></timetable>`), null);
 });
 
 test("dzień z brakującymi lekcjami jest do wyjaśnienia, IND i zastępstwo poza sumą", () => {
@@ -89,7 +109,8 @@ test("plik stanu i eksport XLSX", async () => {
   assert.throws(() => wczytajStan('{"x":1}'));
   const bajty = await eksportMiesiaca(s, "2026-09", rozliczWszystkich(s, "2026-09"));
   const { sheets } = await readWorkbook(bajty, DOMParser);
-  assert.deepEqual(Object.keys(sheets), ["Zestawienie 2026-09", "Tygodnie", "Dni", "Decyzje"]);
+  assert.deepEqual(Object.keys(sheets), ["Zestawienie 2026-09", "Tygodnie", "Dni", "Decyzje", "Uwagi"]);
+  assert.deepEqual(sheets.Uwagi[0], ["Data", "Nauczyciel", "Godziny", "Status", "Uwagi automatyczne"]);
   assert.equal(sheets["Zestawienie 2026-09"][1][0], "Kowalska Anna");
   assert.match(sheets.Decyzje[1].join("|"), /zmiana w planie/);
 });
@@ -112,3 +133,113 @@ test("zastępstwo z formą płatności spoza listy jest do wyjaśnienia", () => 
   assert.ok(wt.doWyjasnienia);
   assert.match(wt.uwagi.join(), /nieznaną formą płatności: lekcja 6 „Inna forma”/);
 });
+
+const OPIS = [["Rok szkolny: 2026/2027"], ["Okres: 07.09.2026 (pon.) - 11.09.2026 (pt.)"]];
+
+test("przeniesione lekcje zmieniają plan dnia (InformacjeOPrzeniesieniach)", () => {
+  const arkusze = {
+    "Opis parametrów": OPIS,
+    Oddziały: [
+      ["Przeniesiono z", "Przeniesiono na", "Nauczyciel/wakat", "Nauczyciel/wakat wspomagający", "Oddział", "Przedmiot", "Uwagi"],
+      ["11.09.2026, 2, 08:50-09:35, sala: 4", "10.09.2026, 6, 12:25-13:10, sala: 4", "Kowalska Anna", "-", "1A", "Matematyka", ""],
+      ["11.09.2026, 3, 09:40-10:25, sala: 4", "11.09.2026, 1, 08:00-08:45, sala: 4", "Kowalska Anna", "-", "1A", "Matematyka", ""],
+      ["11.09.2026, 4, 10:35-11:20, sala: 4", "11.09.2026, 4, 10:35-11:20, sala: 9", "Kowalska Anna", "-", "1A", "Matematyka", ""], // tylko sala
+    ],
+  };
+  assert.equal(rodzajSkoroszytu(arkusze), "przeniesienia");
+  const p = czytajPrzeniesienia(arkusze);
+  assert.deepEqual(p.okres, { od: "2026-09-07", do: "2026-09-11" });
+  assert.deepEqual(p.przeniesienia, { "kowalska anna": { "2026-09-11": { z: [2, 3], na: [1] }, "2026-09-10": { z: [], na: [6] } } });
+
+  const s = stanTestowy();
+  dodajInformacje(s, "przeniesienia", p.okres, p.przeniesienia, "przeniesienia");
+  const pt = analizaDnia(s, "kowalska anna", "2026-09-11");
+  assert.deepEqual(pt.plan, [1, 4, 5], "lekcje 2 i 3 przeniesione z piątku");
+  assert.match(pt.uwagi.join(" "), /bez tematu lekcje z planu: 4,5/);
+  const czw = analizaDnia(s, "kowalska anna", "2026-09-10");
+  assert.deepEqual(czw.plan, [1, 2, 3, 4, 5, 6]);
+  assert.match(czw.uwagi.join(" "), /przeniesienia: na lekcje 6/);
+  assert.match(czw.uwagi.join(" "), /bez tematu lekcje przeniesione na ten dzień: 6/);
+  assert.ok(!/bez tematu lekcje z planu/.test(czw.uwagi.join(" ")));
+  assert.ok(czw.doWyjasnienia);
+});
+
+test("informacje o zastępstwach: kontrola form płatności i zastępstwo za brak zestawienia", () => {
+  const arkusze = {
+    "Opis parametrów": OPIS,
+    Oddziały: [
+      ["Dzień", "Lekcja", "Nauczyciel/wakat", "Oddział", "Przedmiot", "Sala", "Zastępca", "Uwagi", "Forma płatności"],
+      ["08.09.2026", "6, 12:25-13:10", "Nowak Jan", "2B", "Fizyka", "5", "Kowalska Anna", "", "Godzina do zliczenia"],
+      ["08.09.2026", "7, 13:15-14:00", "Nowak Jan", "2B", "Fizyka", "5", "Uczniowie zwolnieni do domu", "", "-"],
+    ],
+    "Dzienniki zajeć innych": [["Dzień", "Godzina", "Nauczyciel", "Dziennik zajęć innych"], ["08.09.2026", "08:00-08:45", "Nowak Jan", "IN - Uczeń Zmyślony"]],
+  };
+  assert.equal(rodzajSkoroszytu(arkusze), "zastepstwa");
+  const z = czytajInformacjeOZastepstwach(arkusze);
+  assert.deepEqual(z.zastepstwa, { "kowalska anna": { "2026-09-08": [{ lekcja: 6, forma: "Godzina do zliczenia", skutek: null, zaKogo: "Nowak Jan", oddzial: "2B" }] } });
+  assert.ok(!JSON.stringify(z).includes("Uczeń"), "bez dzienników zajęć innych");
+
+  // bez zbiorczego zestawienia forma płatności pochodzi z informacji; własna lekcja 2 odwołana
+  const s = stanTestowy();
+  s.realizacja["kowalska anna"]["2026-09-08"].lekcje = [1, 3, 4, 5];
+  dodajInformacje(s, "zastepstwa", z.okres, z.zastepstwa, "informacje");
+  const wt = analizaDnia(s, "kowalska anna", "2026-09-08");
+  assert.equal(wt.godziny, 5);
+  assert.ok(!wt.doWyjasnienia, wt.uwagi.join("; "));
+
+  // zestawienie ma pierwszeństwo, a różna forma w obu raportach jest do wyjaśnienia
+  dodajZestawienie(s, { okres: { od: "2026-09-07", do: "2026-09-11" }, nieobecnosci: {}, zastepstwa: { "kowalska anna": { "2026-09-08": [{ lekcja: 6, forma: "Bezpłatne" }] } } }, "zestawienie");
+  const wt2 = analizaDnia(s, "kowalska anna", "2026-09-08");
+  assert.equal(wt2.godziny, 4);
+  assert.ok(wt2.doWyjasnienia);
+  assert.match(wt2.uwagi.join(" "), /lekcja 6 — zestawienie „Bezpłatne”, informacje „Godzina do zliczenia”/);
+
+  // dwie grupy w tej samej godzinie z różnymi formami — zgodne, jeśli oba raporty mają te same formy
+  s.zestawienie.zastepstwa["kowalska anna"]["2026-09-08"] = [{ lekcja: 6, forma: "Bezpłatne" }, { lekcja: 6, forma: "Godzina do zliczenia" }];
+  s.informacje.zastepstwa["kowalska anna"]["2026-09-08"].push({ lekcja: 6, forma: "Bezpłatne" });
+  assert.ok(!/różne formy/.test(analizaDnia(s, "kowalska anna", "2026-09-08").uwagi.join(" ")));
+});
+
+test("stary plik rozliczenia bez „informacje” wczytuje się", () => {
+  const s = JSON.parse(zapiszStan(stanTestowy()));
+  delete s.informacje;
+  const w = wczytajStan(JSON.stringify(s));
+  assert.deepEqual(w.informacje, { zastepstwa: {}, przeniesienia: {} });
+  assert.equal(analizaDnia(w, "kowalska anna", "2026-09-08").godziny, 5);
+});
+
+test("zastępstwo ze zmian bez tematu: płatne do wyjaśnienia, bezpłatne tylko w uwagach", () => {
+  const s = stanTestowy();
+  dodajZestawienie(s, { okres: { od: "2026-09-07", do: "2026-09-11" }, nieobecnosci: {}, zastepstwa: { "kowalska anna": { "2026-09-07": [{ lekcja: 8, forma: "Bezpłatne", zaKogo: "Nowak Jan", oddzial: "2B" }], "2026-09-09": [{ lekcja: 7, forma: "Dodatkowo płatne", zaKogo: "Nowak Jan", oddzial: "2B" }] } } }, "zestawienie");
+  const sr = analizaDnia(s, "kowalska anna", "2026-09-09");
+  assert.ok(sr.doWyjasnienia);
+  assert.match(sr.uwagi.join(" "), /zastępstwo bez tematu w dzienniku: lekcja 7 za Nowak Jan, 2B \(Dodatkowo płatne\)/);
+  const pn = analizaDnia(s, "kowalska anna", "2026-09-07");
+  assert.ok(!pn.doWyjasnienia);
+  assert.match(pn.uwagi.join(" "), /zastępstwo bezpłatne bez tematu w dzienniku \(nie zmienia rozliczenia\): lekcja 8/);
+});
+
+test("„godzin do zliczenia” tyle, ile odwołanych lekcji z planu", () => {
+  const zast = (lekcje) => ({ okres: { od: "2026-09-07", do: "2026-09-11" }, nieobecnosci: { "kowalska anna": { "2026-09-10": { powody: ["Wycieczka"], lekcje: [5] } } }, zastepstwa: { "kowalska anna": { "2026-09-10": lekcje.map((lekcja) => ({ lekcja, forma: "Godzina do zliczenia" })) } } });
+  const s = stanTestowy();
+  // czwartek: plan 1–5, tematy tylko 1,2 → odwołane 3,4 (5 — własna nieobecność, nie odwołana)
+  s.realizacja["kowalska anna"]["2026-09-10"] = { godziny: 2, lekcje: [1, 2], ind: 0, zastepstwa: [6, 7], szkoly: {} };
+  dodajZestawienie(s, zast([6, 7]), "zestawienie");
+  let czw = analizaDnia(s, "kowalska anna", "2026-09-10");
+  assert.equal(czw.godziny, 4);
+  assert.ok(!/bez tematu lekcje z planu|ponad odwołane/.test(czw.uwagi.join(" ")), czw.uwagi.join("; "));
+
+  // trzy „do zliczenia” na dwie odwołane lekcje — nadmiar do wyjaśnienia
+  s.realizacja["kowalska anna"]["2026-09-10"].zastepstwa = [6, 7, 8];
+  dodajZestawienie(s, zast([6, 7, 8]), "zestawienie");
+  czw = analizaDnia(s, "kowalska anna", "2026-09-10");
+  assert.ok(czw.doWyjasnienia);
+  assert.match(czw.uwagi.join(" "), /„godzin do zliczenia” 3 \(lekcje 6,7,8\), a odwołanych lekcji z planu 2 \(3,4\) — 1 ponad odwołane/);
+
+  // jedna „do zliczenia” na dwie odwołane — brakująca lekcja do wyjaśnienia
+  s.realizacja["kowalska anna"]["2026-09-10"].zastepstwa = [6];
+  dodajZestawienie(s, zast([6]), "zestawienie");
+  czw = analizaDnia(s, "kowalska anna", "2026-09-10");
+  assert.match(czw.uwagi.join(" "), /bez tematu lekcje z planu: 3,4 \(odwołanych 2, „godzin do zliczenia” 1 — brakuje 1\)/);
+});
+

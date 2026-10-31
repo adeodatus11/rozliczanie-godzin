@@ -75,6 +75,12 @@ th.dzienNag:hover { color: var(--accent); }
 .legenda .l-wyj::before { background: var(--warn-soft); box-shadow: inset 0 0 0 1px var(--warn); }
 .legenda .l-kor::before { background: var(--dec-soft); box-shadow: inset 0 0 0 1px var(--dec); }
 .legenda .l-odl::before { background: var(--off); }
+tr.klik { cursor: pointer; }
+.listaUwag th, .listaUwag td { text-align: left; vertical-align: top; }
+tr.klik:hover td { background: var(--accent-soft); }
+.status-wyj, .status-kor { display: inline-block; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.status-wyj { background: var(--warn-soft); box-shadow: inset 0 0 0 1px var(--warn); }
+.status-kor { background: var(--dec-soft); box-shadow: inset 0 0 0 1px var(--dec); }
 .nazwa small { display: block; color: var(--muted); font-size: 11px; }
 .pusto { padding: 40px; text-align: center; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
 dialog { border: 1px solid var(--line-strong); border-radius: 12px; padding: 0; width: min(640px, calc(100vw - 32px)); background: var(--panel); color: var(--text); }

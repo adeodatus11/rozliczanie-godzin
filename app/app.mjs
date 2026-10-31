@@ -1,10 +1,10 @@
 // Interfejs aplikacji. Wszystko dzieje się w przeglądarce: pliki są czytane
 // lokalnie, stan zapisuje się do pliku JSON wskazanego przez użytkownika.
 import { readWorkbook } from "../src/xlsx.mjs";
-import { lekcjeZTematow, realizacjaDzienna, planZXml, kluczOsoby, znajdzOsobe } from "../src/wejscie.mjs";
-import { czytajZestawienie, rodzajSkoroszytu } from "../src/zmiany.mjs";
+import { lekcjeZTematow, realizacjaDzienna, planZXml, planOdZXml, kluczOsoby, znajdzOsobe } from "../src/wejscie.mjs";
+import { czytajZestawienie, czytajInformacjeOZastepstwach, czytajPrzeniesienia, rodzajSkoroszytu } from "../src/zmiany.mjs";
 import { konfiguracjaZArkusza } from "../src/konfiguracja.mjs";
-import { nowyStan, wczytajStan, zapiszStan, dodajTematy, dodajZestawienie, dodajPlan, ustawDecyzje } from "../src/stan.mjs";
+import { nowyStan, wczytajStan, zapiszStan, dodajTematy, dodajZestawienie, dodajInformacje, dodajPlan, ustawDecyzje } from "../src/stan.mjs";
 import { rozliczWszystkich, analizaDnia } from "../src/rozliczenie.mjs";
 import { tygodnieMiesiaca, dodajDni, POWODY_ODLICZENIA, dzienTygodnia } from "../src/silnik.mjs";
 import { eksportMiesiaca, opisDecyzji } from "../src/eksport.mjs";
@@ -48,8 +48,11 @@ function komunikat(tekst, rodzaj = "") {
 }
 
 // ——— pliki ———
+// Kolejność przy wgraniu kilku plików naraz: najpierw plik rozliczenia, potem plan (potrzebny konfiguracji z arkusza).
+const KOLEJNOSC_PLIKOW = (f) => (/\.json$/i.test(f.name) ? 0 : /\.xml$/i.test(f.name) ? 1 : 2);
+
 async function wczytajPliki(pliki) {
-  for (const f of pliki) {
+  for (const f of [...pliki].sort((a, b) => KOLEJNOSC_PLIKOW(a) - KOLEJNOSC_PLIKOW(b))) {
     try {
       if (/\.json$/i.test(f.name)) {
         stan = wczytajStan(await f.text());
@@ -58,11 +61,13 @@ async function wczytajPliki(pliki) {
         zmiany = false;
         komunikat(`Otwarto rozliczenie ${f.name}.`);
       } else if (/\.xml$/i.test(f.name)) {
-        const od = (f.name.match(/\d{4}-\d{2}-\d{2}/) ?? [])[0] ?? prompt(`Od kiedy obowiązuje plan z pliku ${f.name}? (RRRR-MM-DD)`, new Date().toISOString().slice(0, 10));
-        if (!od) continue;
         const bajty = new Uint8Array(await f.arrayBuffer());
         const kod = /encoding="windows-1250"/i.test(new TextDecoder("latin1").decode(bajty.slice(0, 200))) ? "windows-1250" : "utf-8";
-        const plan = planZXml(new TextDecoder(kod).decode(bajty), DOMParser);
+        const xml = new TextDecoder(kod).decode(bajty);
+        const od = planOdZXml(xml) ?? (f.name.match(/\d{4}-\d{2}-\d{2}/) ?? [])[0] ?? prompt(`Od kiedy obowiązuje plan z pliku ${f.name}? (RRRR-MM-DD)`, new Date().toISOString().slice(0, 10));
+        if (!od) continue;
+        const plan = planZXml(xml, DOMParser);
+        if (!Object.keys(plan).length) throw Error("w pliku nie znaleziono planu lekcji nauczycieli (oczekiwany eksport aSc albo „planNauczycieli”)");
         dodajPlan(stan, plan, od, f.name);
         zmiany = true;
         komunikat(`Plan lekcji od ${od}: ${Object.keys(plan).length} nauczycieli.`);
@@ -79,6 +84,16 @@ async function wczytajPliki(pliki) {
           const okres = dodajZestawienie(stan, czytajZestawienie(sheets), f.name);
           zmiany = true;
           komunikat(`Zestawienie zmian ${dm(okres.od)}–${dm(okres.do)}: powody nieobecności i formy płatności zastępstw.`);
+        } else if (rodzaj === "zastepstwa") {
+          const z = czytajInformacjeOZastepstwach(sheets);
+          const okres = dodajInformacje(stan, "zastepstwa", z.okres, z.zastepstwa, f.name);
+          zmiany = true;
+          komunikat(`Informacje o zastępstwach ${dm(okres.od)}–${dm(okres.do)}: kontrola form płatności ze zbiorczego zestawienia zmian.`);
+        } else if (rodzaj === "przeniesienia") {
+          const p = czytajPrzeniesienia(sheets);
+          const okres = dodajInformacje(stan, "przeniesienia", p.okres, p.przeniesienia, f.name);
+          zmiany = true;
+          komunikat(`Informacje o przeniesieniach ${dm(okres.od)}–${dm(okres.do)}: przeniesione lekcje zmieniają plan dnia.`);
         } else if (rodzaj === "arkusz") {
           const konf = konfiguracjaZArkusza(sheets, { plan: stan.plany.at(-1)?.plan ?? null });
           let nowi = 0;
@@ -90,7 +105,7 @@ async function wczytajPliki(pliki) {
             }
           zmiany = true;
           komunikat(`Konfiguracja z arkusza ${f.name}: ${nowi} nauczycieli. Sprawdź zakładkę „Nauczyciele”.`);
-        } else komunikat(`Nie rozpoznano pliku ${f.name}. Oczekiwane: eksport tematów, zestawienie zmian, plan XML albo dotychczasowy arkusz.`, "blad");
+        } else komunikat(`Nie rozpoznano pliku ${f.name}. Oczekiwane: eksport tematów, zestawienie zmian, informacje o zastępstwach lub przeniesieniach, plan XML albo arkusz PLANOWE/ROZLICZONE.`, "blad");
       }
     } catch (e) {
       komunikat(`${f.name}: ${e.message}`, "blad");
@@ -161,12 +176,12 @@ function render() {
   const wyniki = Object.keys(stan.nauczyciele).length ? rozliczWszystkich(stan, ui.miesiac) : [];
   const tygodnie = tygodnieMiesiaca(ui.miesiac);
   if (!tygodnie.includes(ui.tydzien)) ui.tydzien = tygodnie.findLast((t) => stan.zrodla.some((z) => z.rodzaj === "tematy" && z.do >= t && z.od <= dodajDni(t, 4))) ?? tygodnie[0];
-  const zakladki = [["tydzien", "Tydzień"], ["miesiac", "Miesiąc"], ["nauczyciele", `Nauczyciele (${Object.keys(stan.nauczyciele).length})`], ["kalendarz", "Kalendarz"], ["zrodla", "Źródła"]];
+  const zakladki = [["tydzien", "Tydzień"], ["miesiac", "Miesiąc"], ["nauczyciele", `Nauczyciele (${Object.keys(stan.nauczyciele).length})`], ["uwagi", `Uwagi (${dniZUwagami(wyniki).length})`], ["kalendarz", "Kalendarz"], ["zrodla", "Źródła"]];
   const miesiace = [];
   for (let d = new Date(Date.UTC(2026, 8, 1)); d < new Date(Date.UTC(2027, 8, 1)); d.setUTCMonth(d.getUTCMonth() + 1)) miesiace.push(d.toISOString().slice(0, 7));
   $("#app").innerHTML = `
     <div class="drop" id="drop">
-      <p><b>Wgraj pliki</b> (przeciągnij tutaj albo wybierz): eksport tematów <i>ZestawienieTematowZrealizowanych</i>, <i>ZbiorczeZestawienieZmian</i>, plan lekcji (XML) albo dotychczasowy arkusz ROZLICZONE (konfiguracja nauczycieli). Pliki są czytane tylko na tym komputerze.</p>
+      <p><b>Przeciągnij tutaj wszystkie pliki naraz</b> (albo wybierz) — rodzaj rozpozna się sam. Co tydzień: <i>ZestawienieTematowZrealizowanych</i>, <i>ZbiorczeZestawienieZmian</i>, <i>InformacjeOZastepstwach</i>, <i>InformacjeOPrzeniesieniach</i>. Na start: plan lekcji (XML) i arkusz PLANOWE (konfiguracja nauczycieli). Pliki są czytane tylko na tym komputerze.</p>
       <button type="button" data-akcja="wybierz">Wybierz pliki…</button>
     </div>
     ${ui.komunikaty.length ? `<ul class="komunikaty">${ui.komunikaty.slice(0, 3).map((k) => `<li class="${k.rodzaj}">${h(k.tekst)}</li>`).join("")}<li class="zamknij"><button type="button" class="link" data-akcja="zamknijKom">ukryj komunikaty</button></li></ul>` : ""}
@@ -175,19 +190,19 @@ function render() {
     <div class="pasek">
       <label>Miesiąc <select data-pole="miesiac">${miesiace.map((m) => `<option value="${m}" ${m === ui.miesiac ? "selected" : ""}>${nazwaMiesiaca(m)}</option>`).join("")}</select></label>
       ${ui.widok === "tydzien" ? `<label>Tydzień <select data-pole="tydzien">${tygodnie.map((t) => `<option value="${t}" ${t === ui.tydzien ? "selected" : ""}>${dm(t)}–${dm(dodajDni(t, 4))}</option>`).join("")}</select></label>` : ""}
-      ${["tydzien", "miesiac"].includes(ui.widok) ? `<label>Szukaj <input type="search" data-pole="szukaj" value="${h(ui.szukaj)}" placeholder="nazwisko"></label>
+      ${["tydzien", "miesiac", "uwagi"].includes(ui.widok) ? `<label>Szukaj <input type="search" data-pole="szukaj" value="${h(ui.szukaj)}" placeholder="nazwisko"></label>
       <label><input type="checkbox" data-pole="tylkoWyj" ${ui.tylkoWyj ? "checked" : ""}> tylko do wyjaśnienia</label>` : ""}
       <span class="spacer"></span>
       ${ui.widok === "tydzien" ? `<button type="button" data-akcja="podpowiedzi">Zastosuj podpowiedzi w tygodniu</button>` : ""}
       ${ui.widok === "miesiac" ? `<button type="button" class="primary" data-akcja="xlsx" ${wyniki.length ? "" : "disabled"}>Pobierz XLSX za ${nazwaMiesiaca(ui.miesiac)}</button>` : ""}
     </div>
-    <div id="widok">${{ tydzien: widokTydzien, miesiac: widokMiesiac, nauczyciele: widokNauczyciele, kalendarz: widokKalendarz, zrodla: widokZrodla }[ui.widok](wyniki)}</div>`;
+    <div id="widok">${{ tydzien: widokTydzien, miesiac: widokMiesiac, nauczyciele: widokNauczyciele, uwagi: widokUwagi, kalendarz: widokKalendarz, zrodla: widokZrodla }[ui.widok](wyniki)}</div>`;
 }
 
 function banery(wyniki) {
   const out = [];
   if (!Object.keys(stan.nauczyciele).length)
-    out.push(`Brak konfiguracji nauczycieli. Wgraj dotychczasowy arkusz ROZLICZONE (przeniesie pensum, limity, uśrednienia) albo dodaj osoby w zakładce „Nauczyciele”.`);
+    out.push(`Brak konfiguracji nauczycieli. Wgraj arkusz PLANOWE (przeniesie pensum, limity, uśrednienia) albo dodaj osoby w zakładce „Nauczyciele”.`);
   if (!stan.plany.length) out.push(`Brak planu lekcji — aplikacja nie pokaże, których lekcji brakuje. <button type="button" class="link" data-akcja="planSerwis">Pobierz aktualny plan z serwisu nauczyciela</button>`);
   const bezFormy = wyniki.reduce((s, w) => s + Object.values(w.dni).filter((a) => a.data.startsWith(ui.miesiac)).reduce((x, a) => x + a.bezFormy, 0), 0);
   if (bezFormy) out.push(`${odmiana(bezFormy, ["zastępstwo", "zastępstwa", "zastępstw"])} z tematów bez formy płatności, bo brak zbiorczego zestawienia zmian za te dni — nie są liczone. Wgraj <i>ZbiorczeZestawienieZmian</i>.`);
@@ -237,6 +252,24 @@ function widokTydzien(wyniki) {
       })
       .join("")}</tbody></table></div>
     <div class="legenda"><span class="l-wyj">do wyjaśnienia</span><span class="l-kor">Twoja decyzja</span><span class="l-odl">dzień odliczony (pensum −1/5)</span><span>✦ jest podpowiedź</span><span>? brak eksportu tematów za ten dzień</span><span>„plan N” — lekcji w planie, gdy różni się od tematów</span><span>Kliknij dzień, żeby zobaczyć szczegóły i zdecydować; nagłówek dnia — decyzja dla wszystkich.</span></div>`;
+}
+
+/** Dni miesiąca z uwagami automatycznymi albo do wyjaśnienia, w kolejności daty i nazwiska. */
+const dniZUwagami = (wyniki) =>
+  wyniki
+    .flatMap((w) => Object.values(w.dni).filter((a) => a.data.startsWith(ui.miesiac) && (a.uwagi.length || a.doWyjasnienia)).map((a) => ({ w, a })))
+    .sort((x, y) => x.a.data.localeCompare(y.a.data) || stan.nauczyciele[x.w.osoba].nazwa.localeCompare(stan.nauczyciele[y.w.osoba].nazwa, "pl"));
+
+function widokUwagi(wyniki) {
+  const lista = dniZUwagami(wyniki).filter(({ w, a }) => pasujeFiltr(w) && (!ui.tylkoWyj || a.doWyjasnienia));
+  if (!lista.length) return `<div class="pusto">Brak uwag w miesiącu ${nazwaMiesiaca(ui.miesiac)}.</div>`;
+  const status = (a) => (a.decyzja ? `<span class="status-kor">decyzja: ${h(opisDecyzji(a.decyzja))}</span>` : a.doWyjasnienia ? `<span class="status-wyj">do wyjaśnienia</span>` : "informacja");
+  return `<div class="tabela"><table class="konf listaUwag">
+    <thead><tr><th>Data</th><th>Nauczyciel</th><th>Godziny</th><th>Status</th><th>Uwagi</th></tr></thead>
+    <tbody>${lista
+      .map(({ w, a }) => `<tr data-osoba="${h(w.osoba)}" data-data="${a.data}" class="klik"><td>${DNI[dzienTygodnia(a.data)] ?? ""} ${dm(a.data)}</td><td>${h(stan.nauczyciele[w.osoba].nazwa)}</td><td>${liczba(a.godziny)}</td><td>${status(a)}</td><td>${a.uwagi.map(h).join("<br>") || "—"}</td></tr>`)
+      .join("")}</tbody></table></div>
+    <p class="uwagaMala">Kliknij wiersz, żeby zobaczyć szczegóły dnia i zdecydować. Uwagi pochodzą z porównania planu, tematów i raportów zmian (zastępstwa, przeniesienia, nieobecności).</p>`;
 }
 
 function widokMiesiac(wyniki) {
@@ -293,13 +326,15 @@ function widokKalendarz() {
     <p class="uwagaMala">Dzień wolny dla całej szkoły odlicza się wszystkim automatycznie (pensum −1/5). Dzień wolny tylko dla części klas (egzaminy, praktyki) trafia do wyjaśnienia: zdecydujesz osobno dla każdego nauczyciela.</p>`;
 }
 
+const RODZAJE_ZRODEL = { tematy: "tematy", zestawienie: "zestawienie zmian", zastepstwa: "informacje o zastępstwach", przeniesienia: "informacje o przeniesieniach" };
+
 function widokZrodla() {
   return `<h3>Wczytane pliki</h3>${
     stan.zrodla.length
       ? `<div class="tabela"><table class="konf"><thead><tr><th>Rodzaj</th><th>Plik</th><th>Zakres</th><th>Wczytano</th></tr></thead><tbody>${stan.zrodla
           .slice()
           .reverse()
-          .map((z) => `<tr><td>${h(z.rodzaj)}</td><td>${h(z.plik)}</td><td>${z.od ? `${z.od} – ${z.do}` : ""}</td><td>${h(z.wczytano.slice(0, 16).replace("T", " "))}</td></tr>`)
+          .map((z) => `<tr><td>${h(RODZAJE_ZRODEL[z.rodzaj] ?? z.rodzaj)}</td><td>${h(z.plik)}</td><td>${z.od ? `${z.od} – ${z.do}` : ""}</td><td>${h(z.wczytano.slice(0, 16).replace("T", " "))}</td></tr>`)
           .join("")}</tbody></table></div>`
       : `<p class="uwagaMala">Brak.</p>`
   }

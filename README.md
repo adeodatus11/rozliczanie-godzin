@@ -6,21 +6,25 @@ Cała aplikacja to jedna strona. Wszystko dzieje się w przeglądarce: wgrane pl
 
 ## Jak pracować
 
-1. **Na start, raz:**
-   - wgraj dotychczasowy arkusz ROZLICZONE (przeniesie pensum, limity, uśrednienia, specjalistów) i sprawdź zakładkę „Nauczyciele”,
-   - w „Źródłach” pobierz aktualny plan lekcji z serwisu nauczyciela.
-2. **Co tydzień:** wgraj eksport tematów (`ZestawienieTematowZrealizowanych`) i `ZbiorczeZestawienieZmian`. Ponowne wgranie tego samego okresu zastępuje stare dane.
-3. **Dni podświetlone na żółto** (do wyjaśnienia): kliknij dzień i zdecyduj. Możesz:
+1. **Na start** (albo za każdym razem, gdy nie otwierasz zapisanego pliku rozliczenia):
+   - wgraj arkusz PLANOWE (przeniesie pensum, limity, uśrednienia, specjalistów) i sprawdź zakładkę „Nauczyciele”. Arkusz ROZLICZONE też zadziała, ale u osób bez limitu ponadwymiarowych może dać pensum pomniejszone o nieobecności,
+   - wgraj plan lekcji XML (eksport aSc lub `plan-nauczycieli-*.xml` w formacie `planNauczycieli`; data „od” z atrybutu `obowiazujeOd` albo z nazwy pliku) albo w „Źródłach” pobierz plan z serwisu nauczyciela.
+2. **Co tydzień:** przeciągnij na stronę naraz eksport tematów (`ZestawienieTematowZrealizowanych`), `ZbiorczeZestawienieZmian`, `InformacjeOZastepstwach` i `InformacjeOPrzeniesieniach`. Rodzaj pliku rozpoznaje się sam. Ponowne wgranie tego samego okresu zastępuje stare dane.
+   - Przeniesione lekcje zmieniają plan dnia, więc lekcja przeniesiona na inną godzinę nie wychodzi jako „bez tematu”.
+   - Formy płatności są brane ze zbiorczego zestawienia. Jeśli „Informacje o zastępstwach” podają dla tej samej lekcji inną formę, dzień trafia do wyjaśnienia; za dni bez zestawienia formy są brane z informacji.
+   - Zakładka „Uwagi” zbiera wszystkie dni miesiąca z uwagami: lekcje z planu albo przeniesione na ten dzień bez tematu, zastępstwa ze zmian bez tematu w dzienniku (bezpłatne tylko informacyjnie), nieobecności, różne formy płatności. Te same uwagi są w arkuszu „Uwagi” w XLSX.
+3. **Dni podświetlone na żółto** (do wyjaśnienia): kliknij dzień (albo wiersz w „Uwagach”) i zdecyduj. Możesz:
    - odliczyć dzień (pensum −1/5),
    - liczyć lekcje z planu (art. 35 ust. 3e),
    - wpisać godziny ręcznie z uzasadnieniem.
 
    Nagłówek dnia ustawia decyzję wszystkim naraz.
 4. **Zapisz** plik rozliczenia. Pozostałe osoby otwierają ten sam plik; zmiany zapisuje jedna osoba naraz.
-5. **Koniec miesiąca:** zakładka „Miesiąc” → „Pobierz XLSX” (zestawienie, tygodnie, dni, decyzje).
+5. **Koniec miesiąca:** zakładka „Miesiąc” → „Pobierz XLSX” (zestawienie, tygodnie, dni, decyzje, uwagi).
 
 Zasady:
-- Do sumy dnia wchodzą lekcje z tematem i zastępstwa „Godzina do zliczenia”.
+- Do sumy dnia wchodzą lekcje z tematem i zastępstwa „Godzina do zliczenia”. Inne formy (np. „W ramach pensum”) trafiają do wyjaśnienia.
+- „Godzin do zliczenia” ma być tyle, ile odwołanych lekcji nauczyciela w tym dniu: lekcji z planu (po przeniesieniach) bez tematu, poza lekcjami, na których sam był nieobecny. Gdy jest ich więcej, nadmiar trafia do wyjaśnienia (sprawdź formę płatności); gdy mniej, niepokryte odwołane lekcje też.
 - „Dodatkowo płatne” to doraźne zastępstwa, liczone osobno.
 - IND i KKZ są liczone osobno, poza pensum.
 - Prywatny dzień wolny nie obniża pensum.
@@ -52,7 +56,7 @@ Każdy wpis można przestawić. Strona ma zablokowany dostęp do sieci (Content-
 |---|---|
 | `src/silnik.mjs` | reguły tygodnia i miesiąca: pensum −1/5 (1/4), limit przydziału, zaokrąglenie do wypłaty |
 | `src/rozliczenie.mjs` | analiza dnia (plan, tematy, zastępstwa, nieobecności, decyzje, podpowiedzi) i miesiąc nauczyciela |
-| `src/wejscie.mjs`, `src/zmiany.mjs` | odczyt eksportów VULCAN i planu aSc; kolumny mogące identyfikować uczniów są pomijane od razu |
+| `src/wejscie.mjs`, `src/zmiany.mjs` | odczyt eksportów VULCAN (tematy, zestawienie zmian, informacje o zastępstwach i przeniesieniach) i planu XML (aSc, `planNauczycieli`); kolumny mogące identyfikować uczniów są pomijane od razu |
 | `src/konfiguracja.mjs`, `src/arkusz.mjs` | przeniesienie konfiguracji z dotychczasowego arkusza |
 | `src/stan.mjs`, `src/kalendarz.mjs`, `src/eksport.mjs` | plik rozliczenia, kalendarz 2026/27, eksport XLSX |
 | `src/xlsx.mjs`, `src/zip.mjs` | czytnik i zapis XLSX bez bibliotek (z repozytorium `zastepstwa`) |

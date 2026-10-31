@@ -14,6 +14,7 @@ export function nowyStan() {
     plany: [], // [{od, zrodlo, plan: {osoba: {1..5: [pory]}}}]
     realizacja: {}, // osoba → data → {godziny, lekcje, ind, zastepstwa, szkoly}
     zestawienie: { nieobecnosci: {}, zastepstwa: {} },
+    informacje: { zastepstwa: {}, przeniesienia: {} }, // „InformacjeOZastepstwach”, „InformacjeOPrzeniesieniach”
     zrodla: [], // [{rodzaj, plik, od, do, wczytano}]
     decyzje: {}, // osoba → data → {odliczenie?, zPlanu?, godziny?, ind?, kkz?, dorazne?, uwaga?, kiedy}
   };
@@ -48,6 +49,13 @@ export function dodajZestawienie(s, z, plik) {
   podmienZakres(s.zestawienie.zastepstwa, z.zastepstwa, z.okres.od, z.okres.do);
   s.zrodla.push({ rodzaj: "zestawienie", plik, ...z.okres, wczytano: new Date().toISOString() });
   return z.okres;
+}
+
+/** rodzaj: "zastepstwa" (InformacjeOZastepstwach) albo "przeniesienia" (InformacjeOPrzeniesieniach). */
+export function dodajInformacje(s, rodzaj, okres, dane, plik) {
+  podmienZakres(s.informacje[rodzaj], dane, okres.od, okres.do);
+  s.zrodla.push({ rodzaj, plik, ...okres, wczytano: new Date().toISOString() });
+  return okres;
 }
 
 export function dodajPlan(s, plan, od, zrodlo) {

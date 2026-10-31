@@ -1,5 +1,5 @@
 // Odczyt danych wejściowych: eksport „Wykaz zrealizowanych tematów” z VULCAN
-// i plan lekcji aSc (XML). Zwraca proste struktury dla silnika.
+// i plan lekcji XML (eksport aSc albo „planNauczycieli”). Zwraca proste struktury dla silnika.
 
 /** Klucz osoby niezależny od zapisu: „Nowak- Wiśniewska Ewa PLAN LEKCJI” = „Nowak-Wiśniewska Ewa (NW)”. */
 export function kluczOsoby(tekst) {
@@ -104,10 +104,18 @@ export function realizacjaDzienna(lekcje) {
   return out;
 }
 
-/** Plan lekcji aSc XML → {osoba: {dzień tygodnia 1–5: [pory lekcyjne]}}. */
+const DNI_TYGODNIA = ["poniedziałek", "wtorek", "środa", "czwartek", "piątek"];
+
+/** Data „obowiązuje od” zapisana w pliku planu (tylko format „planNauczycieli”). */
+export function planOdZXml(xml) {
+  return (xml.match(/<planNauczycieli\b[^>]*\bobowiazujeOd="(\d{4}-\d{2}-\d{2})"/) ?? [])[1] ?? null;
+}
+
+/** Plan lekcji XML → {osoba: {dzień tygodnia 1–5: [pory lekcyjne]}}. */
 export function planZXml(xml, DOMParser) {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   const tag = (t) => Array.from(doc.getElementsByTagName(t));
+  if (doc.documentElement?.nodeName === "planNauczycieli") return planNauczycieli(tag("nauczyciel"));
   const nauczyciele = Object.fromEntries(
     tag("teacher").map((t) => [t.getAttribute("id"), kluczOsoby(`${t.getAttribute("lastname")} ${t.getAttribute("firstname")}`)]),
   );
@@ -126,6 +134,22 @@ export function planZXml(xml, DOMParser) {
       if (!osoba) continue;
       const pory = ((plan[osoba] ??= {})[dzien] ??= new Set());
       for (let p = 0; p < l.dl; p++) pory.add(Number(c.getAttribute("period")) + p);
+    }
+  }
+  for (const o of Object.values(plan)) for (const d of Object.keys(o)) o[d] = [...o[d]].sort((a, b) => a - b);
+  return plan;
+}
+
+/** Format „planNauczycieli”: <nauczyciel nazwisko imie><lekcja dzien="Wtorek" godzina="1"/>. */
+function planNauczycieli(nauczyciele) {
+  const plan = {};
+  for (const n of nauczyciele) {
+    const osoba = kluczOsoby(`${n.getAttribute("nazwisko")} ${n.getAttribute("imie")}`);
+    for (const l of Array.from(n.getElementsByTagName("lekcja"))) {
+      const dzien = DNI_TYGODNIA.indexOf(l.getAttribute("dzien").trim().toLocaleLowerCase("pl")) + 1;
+      const pora = Number(l.getAttribute("godzina"));
+      if (dzien < 1 || !pora) continue;
+      ((plan[osoba] ??= {})[dzien] ??= new Set()).add(pora);
     }
   }
   for (const o of Object.values(plan)) for (const d of Object.keys(o)) o[d] = [...o[d]].sort((a, b) => a - b);
