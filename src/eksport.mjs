@@ -71,6 +71,15 @@ export function eksportMiesiaca(stan, miesiac, wyniki) {
   const dni = [["Nauczyciel", "Data", "Dzień", "Godziny", "Plan (lekcje)", "Tematy (lekcje)", "IND", "KKZ", "Doraźne", "Decyzja", "Uwaga do decyzji", "Uwagi automatyczne"]];
   const decyzje = [["Nauczyciel", "Data", "Decyzja", "Uwaga", "Zapisano"]];
   const uwagi = [["Data", "Nauczyciel", "Godziny", "Status", "Uwagi automatyczne"]];
+  // Jak „planowe rozl. wg rozdziałów” w arkuszu PLANOWE, osobno dla każdego rodzaju godzin.
+  const KOL = ["80115", "80117", "80118", "KKZ", "?"];
+  const rozdzialy = [["Nauczyciel", "Miesiąc", "Rodzaj", "Suma godzin", "80115", "80117", "80118", "KKZ", "Nieprzypisane"]];
+  for (const w of wyniki)
+    for (const [rodzaj, pole] of [["ponadwymiarowe", "ponadwymiarowe"], ["doraźne", "dorazne"], ["IND", "ind"], ["KKZ (decyzje)", "kkz"], ["razem", "razem"]]) {
+      const wartosci = KOL.map((k) => w.rozdzialy.podzial[k]?.[pole] ?? 0);
+      const suma = wartosci.reduce((a, b) => a + b, 0);
+      if (suma || rodzaj === "razem") rozdzialy.push([naz(w.osoba), miesiac, rodzaj, suma, ...wartosci]);
+    }
   for (const w of wyniki) {
     for (const t of w.tygodnie) tyg.push([naz(w.osoba), t.poniedzialek, t.suma, t.pensum, t.nadPensum, t.maks, t.doRozliczenia]);
     for (const t of w.tygodnie)
@@ -89,6 +98,7 @@ export function eksportMiesiaca(stan, miesiac, wyniki) {
     Tygodnie: { wiersze: tyg, szerokosci: [30, 12, 10, 10, 10, 10, 12] },
     Dni: { wiersze: dni, szerokosci: [30, 12, 6, 9, 16, 16, 6, 6, 8, 40, 30, 60] },
     Decyzje: { wiersze: decyzje, szerokosci: [30, 12, 50, 40, 18] },
+    Rozdziały: { wiersze: rozdzialy, szerokosci: [30, 10, 16, 11, 9, 9, 9, 9, 13] },
     Uwagi: { wiersze: [uwagi[0], ...uwagi.slice(1).sort((x, y) => x[0].localeCompare(y[0]) || x[1].localeCompare(y[1], "pl"))], szerokosci: [12, 30, 9, 30, 100] },
   });
 }

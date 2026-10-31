@@ -11,7 +11,7 @@ export function nowyStan() {
     zapisano: null,
     nauczyciele: {}, // klucz → {nazwa, tryb, pensum, dniPracy, maks, dzienne?, od?, do?, uwagi?}
     kalendarz: structuredClone(KALENDARZ_2026_2027), // data → {opis, czesciowy?}
-    plany: [], // [{od, zrodlo, plan: {osoba: {1..5: [pory]}}}]
+    plany: [], // [{od, zrodlo, plan: {osoba: {1..5: [pory]}}, rozdzialy?: {osoba: {rozdział: lekcji/tydz.}}}]
     realizacja: {}, // osoba → data → {godziny, lekcje, ind, zastepstwa, szkoly}
     zestawienie: { nieobecnosci: {}, zastepstwa: {} },
     informacje: { zastepstwa: {}, przeniesienia: {} }, // „InformacjeOZastepstwach”, „InformacjeOPrzeniesieniach”
@@ -58,9 +58,10 @@ export function dodajInformacje(s, rodzaj, okres, dane, plik) {
   return okres;
 }
 
-export function dodajPlan(s, plan, od, zrodlo) {
+/** rozdzialy — tygodniowa liczba lekcji w rozdziałach budżetowych {osoba: {rozdział: n}} (gdy plan ją ma). */
+export function dodajPlan(s, plan, od, zrodlo, rozdzialy = null) {
   s.plany = s.plany.filter((p) => p.od !== od);
-  s.plany.push({ od, zrodlo, plan });
+  s.plany.push({ od, zrodlo, plan, ...(rozdzialy && Object.keys(rozdzialy).length && { rozdzialy }) });
   s.plany.sort((a, b) => a.od.localeCompare(b.od));
 }
 

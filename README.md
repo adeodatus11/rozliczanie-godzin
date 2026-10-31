@@ -29,6 +29,7 @@ Zasady:
 - „Dodatkowo płatne” to doraźne zastępstwa, liczone osobno.
 - IND i KKZ są liczone osobno, poza pensum.
 - Prywatny dzień wolny nie obniża pensum.
+- Rozdziały (jak w arkuszu PLANOWE): 80115 — technikum (oddziały T…), 80117 — branżowa I stopnia, 80118 — branżowa II stopnia (oddziały B), przedmioty ogólnokształcące, KKZ — branżowa II stopnia, przedmioty zawodowe. Godziny ponadwymiarowe dzielą się proporcjonalnie do lekcji w rozdziałach w miesiącu (bez tematów — z planu, a bez planu — z podziału z arkusza PLANOWE albo wpisanego w „Nauczycielach”); doraźne i IND według oddziału lekcji. Podział jest w raporcie nauczyciela i w arkuszu „Rozdziały” w XLSX.
 
 ## Zaświadczenia o frekwencji (`frekwencja.html`)
 
@@ -61,6 +62,7 @@ Każdy wpis można przestawić. Strona ma zablokowany dostęp do sieci (Content-
 | `src/konfiguracja.mjs`, `src/arkusz.mjs` | przeniesienie konfiguracji z dotychczasowego arkusza |
 | `src/stan.mjs`, `src/kalendarz.mjs`, `src/eksport.mjs`, `src/raport.mjs` | plik rozliczenia, kalendarz 2026/27, eksport XLSX, raport nauczyciela |
 | `src/xlsx.mjs`, `src/zip.mjs` | czytnik i zapis XLSX bez bibliotek (z repozytorium `zastepstwa`) |
+| `src/rozdzialy.mjs` | rozdziały budżetowe lekcji i podział godzin |
 | `src/frekwencja.mjs`, `src/tabele.mjs` | zaświadczenia: rozpoznanie tabeli frekwencji, rodzaje wpisów, rachunek okresu; odczyt CSV i tabel HTML |
 | `app/` | interfejsy; `build.mjs` składa każdy w jeden plik: `dist/index.html` i `dist/frekwencja.html` |
 

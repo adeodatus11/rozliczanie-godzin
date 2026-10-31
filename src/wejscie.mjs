@@ -1,5 +1,6 @@
 // Odczyt danych wejściowych: eksport „Wykaz zrealizowanych tematów” z VULCAN
 // i plan lekcji XML (eksport aSc albo „planNauczycieli”). Zwraca proste struktury dla silnika.
+import { rozdzialLekcji } from "./rozdzialy.mjs";
 
 /** Klucz osoby niezależny od zapisu: „Nowak- Wiśniewska Ewa PLAN LEKCJI” = „Nowak-Wiśniewska Ewa (NW)”. */
 export function kluczOsoby(tekst) {
@@ -71,12 +72,15 @@ export function lekcjeZTematow(wiersze) {
       zastepstwo: String(w[k["Zastępstwo"]]).trim() === "Tak",
       ind: /\(IND\)|^Indywidualne/.test(String(w[k["Grupa"]])),
     });
+    const l = lekcje.at(-1);
+    l.rozdzial = rozdzialLekcji(l);
   }
   return lekcje;
 }
 
 /**
- * Realizacja dzienna: {osoba: {data: {godziny, lekcje[], ind, zastepstwa, szkoly}}}.
+ * Realizacja dzienna: {osoba: {data: {godziny, lekcje[], ind, zastepstwa, szkoly, rozdzialy, rozdzialyInd, rozdzialyZast}}}.
+ * rozdzialy / rozdzialyInd — liczba lekcji w rozdziałach budżetowych, rozdzialyZast — {lekcja: rozdział}.
  * Godzina = jedna pora lekcyjna; kilka grup naraz (złączenie) to jedna godzina.
  * Nauczanie indywidualne i zastępstwa są liczone osobno, poza sumą dnia —
  * tak jak w dotychczasowym arkuszu ROZLICZONE.
@@ -84,12 +88,18 @@ export function lekcjeZTematow(wiersze) {
 export function realizacjaDzienna(lekcje) {
   const out = {};
   for (const l of lekcje) {
-    const dzien = ((out[l.osoba] ??= {})[l.data] ??= { pory: new Set(), ind: new Set(), zastepstwa: new Set(), szkoly: {} });
-    if (l.ind) dzien.ind.add(l.lekcja);
-    else if (l.zastepstwo) dzien.zastepstwa.add(l.lekcja);
-    else if (!dzien.pory.has(l.lekcja)) {
+    const dzien = ((out[l.osoba] ??= {})[l.data] ??= { pory: new Set(), ind: new Set(), zastepstwa: new Set(), szkoly: {}, rozdzialy: {}, rozdzialyInd: {}, rozdzialyZast: {} });
+    const r = l.rozdzial ?? "?";
+    if (l.ind) {
+      if (!dzien.ind.has(l.lekcja)) dzien.rozdzialyInd[r] = (dzien.rozdzialyInd[r] ?? 0) + 1;
+      dzien.ind.add(l.lekcja);
+    } else if (l.zastepstwo) {
+      dzien.zastepstwa.add(l.lekcja);
+      dzien.rozdzialyZast[l.lekcja] ??= r;
+    } else if (!dzien.pory.has(l.lekcja)) {
       dzien.pory.add(l.lekcja);
       dzien.szkoly[l.szkola] = (dzien.szkoly[l.szkola] ?? 0) + 1;
+      dzien.rozdzialy[r] = (dzien.rozdzialy[r] ?? 0) + 1;
     }
   }
   for (const osoba of Object.values(out))
@@ -100,6 +110,9 @@ export function realizacjaDzienna(lekcje) {
         ind: d.ind.size,
         zastepstwa: [...d.zastepstwa].sort((a, b) => a - b),
         szkoly: d.szkoly,
+        rozdzialy: d.rozdzialy,
+        rozdzialyInd: d.rozdzialyInd,
+        rozdzialyZast: d.rozdzialyZast,
       };
   return out;
 }
@@ -138,6 +151,21 @@ export function planZXml(xml, DOMParser) {
   }
   for (const o of Object.values(plan)) for (const d of Object.keys(o)) o[d] = [...o[d]].sort((a, b) => a - b);
   return plan;
+}
+
+/** Tygodniowa liczba lekcji nauczycieli w rozdziałach budżetowych z planu „planNauczycieli” ({} dla innych formatów). */
+export function rozdzialyZPlanu(xml, DOMParser) {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if (doc.documentElement?.nodeName !== "planNauczycieli") return {};
+  const out = {};
+  for (const n of Array.from(doc.getElementsByTagName("nauczyciel"))) {
+    const osoba = kluczOsoby(`${n.getAttribute("nazwisko")} ${n.getAttribute("imie")}`);
+    for (const l of Array.from(n.getElementsByTagName("lekcja"))) {
+      const r = rozdzialLekcji({ oddzial: l.getAttribute("oddzial") ?? "", przedmiot: l.getAttribute("przedmiot") ?? "" }) ?? "?";
+      (out[osoba] ??= {})[r] = (out[osoba][r] ?? 0) + 1;
+    }
+  }
+  return out;
 }
 
 /** Format „planNauczycieli”: <nauczyciel nazwisko imie><lekcja dzien="Wtorek" godzina="1"/>. */

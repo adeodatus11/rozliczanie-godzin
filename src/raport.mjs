@@ -36,8 +36,8 @@ export function raportNauczyciela(stan, w, miesiac) {
   for (const d of dni) {
     if (!d.dorazne || odliczenie[d.data]) continue;
     const lista = w.dni[d.data].zastepstwa.filter((z) => FORMY[z.forma] === "dorazne");
-    if (d.decyzja?.dorazne != null && d.decyzja.dorazne !== lista.length) dorazne.push({ data: d.data, lekcja: null, zaKogo: null, oddzial: null, opis: `decyzja: ${d.decyzja.dorazne} h${d.decyzja.uwaga ? ` — ${d.decyzja.uwaga}` : ""}` });
-    else for (const z of lista) dorazne.push({ data: d.data, lekcja: z.lekcja, zaKogo: z.zaKogo, oddzial: z.oddzial, opis: null });
+    if (d.decyzja?.dorazne != null && d.decyzja.dorazne !== lista.length) dorazne.push({ data: d.data, lekcja: null, zaKogo: null, oddzial: null, rozdzial: null, opis: `decyzja: ${d.decyzja.dorazne} h${d.decyzja.uwaga ? ` — ${d.decyzja.uwaga}` : ""}` });
+    else for (const z of lista) dorazne.push({ data: d.data, lekcja: z.lekcja, zaKogo: z.zaKogo, oddzial: z.oddzial, rozdzial: z.rozdzial ?? null, opis: null });
   }
 
   const tygodnie = w.tygodnie.map((t) => {
@@ -70,6 +70,7 @@ export function raportNauczyciela(stan, w, miesiac) {
     dniPracy: n.dniPracy,
     pozycje,
     razem: w.razem,
+    rozdzialy: w.rozdzialy,
     tygodnie,
     dorazne,
     dni,

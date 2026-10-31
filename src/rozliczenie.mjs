@@ -3,6 +3,7 @@
 import { rozliczMiesiac, tygodnieMiesiaca, dodajDni, dzienTygodnia, r2 } from "./silnik.mjs";
 import { planNaDzien } from "./stan.mjs";
 import { znajdzOsobe } from "./wejscie.mjs";
+import { ROZDZIALY, NIEPRZYPISANE, rozdzialLekcji, podzielProporcjonalnie } from "./rozdzialy.mjs";
 
 /** Formy płatności zastępstw (VULCAN) i ich skutek dla rozliczenia. */
 export const FORMY = {
@@ -49,7 +50,9 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
   // Zastępstwa z tematów („Zastępstwo = Tak”) i ich forma płatności z zestawienia zmian.
   const zastepstwa = (r?.zastepstwa ?? []).map((lekcja) => {
     const z = zastDnia.find((x) => x.lekcja === lekcja);
-    return { lekcja, forma: z?.forma ?? null, zaKogo: z?.zaKogo ?? null, oddzial: z?.oddzial ?? null };
+    const zTematow = r?.rozdzialyZast?.[lekcja];
+    const rozdzial = zTematow && zTematow !== NIEPRZYPISANE ? zTematow : z ? rozdzialLekcji({ oddzial: z.oddzial ?? "", przedmiot: z.przedmiot ?? "" }) : null;
+    return { lekcja, forma: z?.forma ?? null, zaKogo: z?.zaKogo ?? null, oddzial: z?.oddzial ?? null, przedmiot: z?.przedmiot ?? null, rozdzial };
   });
   // Ta sama lekcja z innymi formami płatności w obu raportach VULCAN — do wyjaśnienia. Porównanie
   // zbiorów form dla lekcji (zastępca może w tej samej godzinie mieć dwie grupy z różnymi formami).
@@ -123,6 +126,8 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
     bezTematu,
     nieobecnosc: nieob,
     szkoly: r?.szkoly ?? {},
+    rozdzialy: r?.rozdzialy ?? null,
+    rozdzialyInd: r?.rozdzialyInd ?? null,
     godzinyAuto,
     godziny: r2(godziny),
     decyzja,
@@ -161,9 +166,55 @@ export function rozliczNauczyciela(stan, osoba, miesiac, pamiec = new Map()) {
     ...m,
     dni,
     ...dodatkowe,
+    rozdzialy: podzialNaRozdzialy(stan, osoba, miesiac, n, m, liczone, dodatkowe, pamiec),
     razem: r2(m.doWyplaty + dodatkowe.ind + dodatkowe.kkz + dodatkowe.dorazne),
     doWyjasnienia: wMiesiacu.filter((a) => a.doWyjasnienia).length,
   };
+}
+
+const sumaWag = (w) => Object.values(w).reduce((s, x) => s + x, 0);
+const dodajDo = (cel, klucz, ile) => ile && (cel[klucz] = (cel[klucz] ?? 0) + ile);
+
+/**
+ * Godziny do wypłaty w rozdziałach budżetowych (80115, 80117, 80118, KKZ; „?” — nieprzypisane):
+ * ponadwymiarowe proporcjonalnie do lekcji w rozdziałach (z tematów miesiąca, bez nich z planu,
+ * a bez planu — z podziału w konfiguracji nauczyciela, np. specjaliści),
+ * doraźne i IND według oddziału lekcji, KKZ z decyzji dnia.
+ */
+function podzialNaRozdzialy(stan, osoba, miesiac, n, m, liczone, dodatkowe, pamiec) {
+  let podstawa = {};
+  // Dni z tematami bez rozdziałów (plik rozliczenia sprzed tej wersji) — wtedy podział z planu.
+  const bezRozdzialow = liczone.some((a) => a.tematy.length && !a.rozdzialy);
+  if (n.tryb === "tematy" && !bezRozdzialow)
+    for (const a of liczone) {
+      for (const [r, ile] of Object.entries(a.rozdzialy ?? {})) dodajDo(podstawa, r, ile);
+      for (const z of a.zastepstwa) if (FORMY[z.forma] === "doSumy") dodajDo(podstawa, z.rozdzial ?? NIEPRZYPISANE, 1);
+    }
+  let zrodlo = "lekcje w miesiącu";
+  if (!sumaWag(podstawa)) {
+    const plan = stan.plany.filter((p) => p.od <= `${miesiac}-31` && p.rozdzialy).at(-1)?.rozdzialy;
+    const k = plan ? dopasuj(pamiec, osoba, plan) : null;
+    podstawa = k ? { ...plan[k] } : { ...(n.rozdzialy ?? {}) };
+    zrodlo = k ? "plan lekcji" : sumaWag(podstawa) ? "podział z konfiguracji (arkusz PLANOWE)" : null;
+  }
+  const ponad = sumaWag(podstawa) ? podzielProporcjonalnie(m.doWyplaty, podstawa) : m.doWyplaty ? { [NIEPRZYPISANE]: m.doWyplaty } : {};
+  const dorazne = {};
+  const ind = {};
+  for (const a of liczone) {
+    const lista = a.zastepstwa.filter((z) => FORMY[z.forma] === "dorazne");
+    if (a.dorazne === lista.length) for (const z of lista) dodajDo(dorazne, z.rozdzial ?? NIEPRZYPISANE, 1);
+    else dodajDo(dorazne, NIEPRZYPISANE, a.dorazne);
+    if (a.ind && a.rozdzialyInd && sumaWag(a.rozdzialyInd) === a.ind) for (const [r, ile] of Object.entries(a.rozdzialyInd)) dodajDo(ind, r, ile);
+    else dodajDo(ind, NIEPRZYPISANE, a.ind);
+  }
+  const kkz = dodatkowe.kkz ? { KKZ: dodatkowe.kkz } : {};
+  const podzial = {};
+  for (const r of [...ROZDZIALY, NIEPRZYPISANE]) {
+    const p = { ponadwymiarowe: ponad[r] ?? 0, dorazne: dorazne[r] ?? 0, ind: ind[r] ?? 0, kkz: kkz[r] ?? 0 };
+    p.razem = r2(p.ponadwymiarowe + p.dorazne + p.ind + p.kkz);
+    if (r !== NIEPRZYPISANE || p.razem) podzial[r] = p;
+  }
+  return { podzial, podstawa, zrodlo };
 }
 
 export function rozliczWszystkich(stan, miesiac) {

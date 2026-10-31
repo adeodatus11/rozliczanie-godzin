@@ -1,7 +1,7 @@
 // Interfejs aplikacji. Wszystko dzieje się w przeglądarce: pliki są czytane
 // lokalnie, stan zapisuje się do pliku JSON wskazanego przez użytkownika.
 import { readWorkbook } from "../src/xlsx.mjs";
-import { lekcjeZTematow, realizacjaDzienna, planZXml, planOdZXml, kluczOsoby, znajdzOsobe } from "../src/wejscie.mjs";
+import { lekcjeZTematow, realizacjaDzienna, planZXml, planOdZXml, rozdzialyZPlanu, kluczOsoby, znajdzOsobe } from "../src/wejscie.mjs";
 import { czytajZestawienie, czytajInformacjeOZastepstwach, czytajPrzeniesienia, rodzajSkoroszytu } from "../src/zmiany.mjs";
 import { konfiguracjaZArkusza } from "../src/konfiguracja.mjs";
 import { nowyStan, wczytajStan, zapiszStan, dodajTematy, dodajZestawienie, dodajInformacje, dodajPlan, ustawDecyzje } from "../src/stan.mjs";
@@ -70,7 +70,7 @@ async function wczytajPliki(pliki) {
         if (!od) continue;
         const plan = planZXml(xml, DOMParser);
         if (!Object.keys(plan).length) throw Error("w pliku nie znaleziono planu lekcji nauczycieli (oczekiwany eksport aSc albo „planNauczycieli”)");
-        dodajPlan(stan, plan, od, f.name);
+        dodajPlan(stan, plan, od, f.name, rozdzialyZPlanu(xml, DOMParser));
         zmiany = true;
         komunikat(`Plan lekcji od ${od}: ${Object.keys(plan).length} nauczycieli.`);
       } else {
@@ -279,6 +279,8 @@ function widokUwagi(wyniki) {
     <p class="uwagaMala">Kliknij wiersz, żeby zobaczyć szczegóły dnia i zdecydować. Uwagi pochodzą z porównania planu, tematów i raportów zmian (zastępstwa, przeniesienia, nieobecności).</p>`;
 }
 
+const NAZWY_ROZDZIALOW = { 80115: "80115 — technikum", 80117: "80117 — branżowa I stopnia", 80118: "80118 — branżowa II stopnia (ogólnokształcące)", KKZ: "KKZ (zawodowe w branżowej II stopnia)", "?": "nieprzypisane — sprawdź oddział" };
+
 const powodyOdliczen = (xs) => [...new Set(xs.map((x) => x.powod))].map((p) => `${odmiana(xs.filter((x) => x.powod === p).length, ["dzień", "dni", "dni"])}: ${p}`).join("; ");
 
 function htmlRaportu(r) {
@@ -296,7 +298,16 @@ function htmlRaportu(r) {
       r.tygodnie.map((t) => `<tr><td>${dm(t.od)}–${dm(t.do)}</td><td class="liczba">${liczba(t.suma)}</td><td class="liczba">${liczba(t.pensum)}</td><td>${t.odliczone.length ? h(powodyOdliczen(t.odliczone)) : "—"}</td><td class="liczba">${liczba(t.nadPensum)}</td><td class="liczba">${liczba(t.maks)}</td><td class="liczba"><b>${liczba(t.doRozliczenia)}</b></td></tr>`),
     )}
     <p class="uwagaMala">Do rozliczenia = nadwyżka nad pensum, nie więcej niż przydzielony limit. Pensum obniża się o 1/5 (1/4) za każdy dzień z art. 35 ust. 3f KN.</p>
-    ${r.dorazne.length ? `<h3>Doraźne zastępstwa</h3>${tab(["Data", "Lekcja", "Za kogo", "Oddział"], r.dorazne.map((z) => (z.opis ? `<tr><td>${DNI[dzienTygodnia(z.data)]} ${dm(z.data)}</td><td colspan="3">${h(z.opis)}</td></tr>` : `<tr><td>${DNI[dzienTygodnia(z.data)]} ${dm(z.data)}</td><td>${z.lekcja}</td><td>${h(z.zaKogo ?? "")}</td><td>${h(z.oddzial ?? "")}</td></tr>`)))}` : ""}
+    <h3>Podział na rozdziały</h3>
+    ${tab(
+      ["Rozdział", "Ponadwymiarowe", "Doraźne", "IND", "KKZ", "Razem"],
+      [
+        ...Object.entries(r.rozdzialy.podzial).map(([k, p]) => `<tr><td>${h(NAZWY_ROZDZIALOW[k] ?? k)}</td>${["ponadwymiarowe", "dorazne", "ind", "kkz", "razem"].map((x) => `<td class="liczba">${x === "razem" ? `<b>${liczba(p[x])}</b>` : puste(p[x]) || "—"}</td>`).join("")}</tr>`),
+      ],
+      "rozdzialy",
+    )}
+    <p class="uwagaMala">Ponadwymiarowe dzielone proporcjonalnie do lekcji w rozdziałach (${r.rozdzialy.zrodlo ? `${h(r.rozdzialy.zrodlo)}: ${Object.entries(r.rozdzialy.podstawa).map(([k, v]) => `${h(k === "?" ? "nieprzypisane" : k)} — ${liczba(v)}`).join(", ")}` : "brak lekcji do podziału"}); doraźne i IND według oddziału lekcji. W klasach branżowej II stopnia przedmioty ogólnokształcące to 80118, zawodowe — KKZ.</p>
+    ${r.dorazne.length ? `<h3>Doraźne zastępstwa</h3>${tab(["Data", "Lekcja", "Za kogo", "Oddział", "Rozdział"], r.dorazne.map((z) => (z.opis ? `<tr><td>${DNI[dzienTygodnia(z.data)]} ${dm(z.data)}</td><td colspan="4">${h(z.opis)}</td></tr>` : `<tr><td>${DNI[dzienTygodnia(z.data)]} ${dm(z.data)}</td><td>${z.lekcja}</td><td>${h(z.zaKogo ?? "")}</td><td>${h(z.oddzial ?? "")}</td><td>${h(z.rozdzial ?? "?")}</td></tr>`)))}` : ""}
     <h3>Dni</h3>
     ${tab(
       ["Dzień", "Godziny", "Skład", "Decyzja / odliczenie", "Uwagi"],
@@ -340,7 +351,7 @@ function widokMiesiac(wyniki) {
 function widokNauczyciele() {
   const lista = Object.entries(stan.nauczyciele).sort((a, b) => a[1].nazwa.localeCompare(b[1].nazwa, "pl"));
   return `<div class="tabela"><table class="konf">
-    <thead><tr><th>Nauczyciel</th><th>Tryb</th><th>Pensum</th><th>Maks. ponadwym./tydz.</th><th>Dni pracy (na nie rozkłada się pensum)</th><th>Godziny dzienne (uśrednienie / stały plan)</th><th>Od</th><th>Do</th><th>Uwagi</th><th></th></tr></thead>
+    <thead><tr><th>Nauczyciel</th><th>Tryb</th><th>Pensum</th><th>Maks. ponadwym./tydz.</th><th>Dni pracy (na nie rozkłada się pensum)</th><th>Godziny dzienne (uśrednienie / stały plan)</th><th>Od</th><th>Do</th><th>Rozdziały (bez planu)</th><th>Uwagi</th><th></th></tr></thead>
     <tbody>${lista
       .map(
         ([k, n]) => `<tr data-n="${h(k)}">
@@ -352,6 +363,7 @@ function widokNauczyciele() {
       <td class="dzienne">${n.tryb === "tematy" ? "—" : [1, 2, 3, 4, 5].map((d) => `<input type="number" step="0.01" min="0" title="${DNI[d]}" data-k="dzienne" data-d="${d}" value="${n.dzienne?.[d] ?? 0}">`).join("")}</td>
       <td><input type="date" data-k="od" value="${n.od ?? ""}"></td>
       <td><input type="date" data-k="do" value="${n.do ?? ""}"></td>
+      <td><input type="text" data-k="rozdzialy" value="${h(Object.entries(n.rozdzialy ?? {}).map(([r, v]) => `${r}:${v}`).join(" "))}" placeholder="np. 80115:9 80117:19" title="Proporcje podziału na rozdziały, gdy nauczyciel nie ma lekcji w planie (np. specjaliści)"></td>
       <td><input type="text" data-k="uwagi" value="${h(n.uwagi ?? "")}"></td>
       <td><button type="button" data-usun="${h(k)}" title="Usuń z rozliczenia">✕</button></td></tr>`,
       )
@@ -595,6 +607,10 @@ document.addEventListener("change", (e) => {
     else if (k === "dzienne") (n.dzienne ??= {})[t.dataset.d] = Number(t.value);
     else if (["pensum", "maks"].includes(k)) n[k] = Number(t.value);
     else if (["od", "do"].includes(k)) t.value ? (n[k] = t.value) : delete n[k];
+    else if (k === "rozdzialy") {
+      const wagi = Object.fromEntries([...t.value.matchAll(/(80115|80117|80118|KKZ)\s*[:=]\s*(\d+(?:[.,]\d+)?)/gi)].map((m) => [m[1].toUpperCase(), Number(m[2].replace(",", "."))]).filter(([, v]) => v > 0));
+      Object.keys(wagi).length ? (n.rozdzialy = wagi) : delete n.rozdzialy;
+    }
     else n[k] = t.value;
     if (!n.dniPracy.length) n.dniPracy = [1, 2, 3, 4, 5];
     return zmieniono();
