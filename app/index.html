@@ -77,6 +77,7 @@ th.dzienNag:hover { color: var(--accent); }
 .legenda .l-odl::before { background: var(--off); }
 tr.klik { cursor: pointer; }
 .listaUwag th, .listaUwag td { text-align: left; vertical-align: top; }
+.listaUwag td:last-child { white-space: normal; }
 tr.klik:hover td { background: var(--accent-soft); }
 .status-wyj, .status-kor { display: inline-block; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
 .status-wyj { background: var(--warn-soft); box-shadow: inset 0 0 0 1px var(--warn); }
@@ -102,6 +103,32 @@ fieldset select { max-width: 100%; min-width: 0; flex: 1 1 220px; }
 .konf input[type=text] { width: 100%; min-width: 160px; }
 .konf .dni label { margin-right: 4px; font-size: 12px; }
 .konf .dzienne input { width: 52px; }
+.raporty { display: grid; gap: 16px; }
+.raport { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 24px; max-width: 980px; }
+.raport h2 { margin: 0; font-size: 20px; }
+.raport h3 { margin: 18px 0 6px; font-size: 14px; }
+.raport .podtytul { margin: 2px 0 0; color: var(--muted); }
+.raport .ostrzezenie { background: var(--warn-soft); border-left: 3px solid var(--warn); padding: 6px 10px; margin: 10px 0 0; }
+.raport table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.raport th, .raport td { text-align: left; vertical-align: top; padding: 4px 8px; border-bottom: 1px solid var(--line); position: static; white-space: normal; background: none; }
+.raport td:first-child { white-space: nowrap; }
+.raport td.liczba, .raport .pozycje th:last-child { text-align: right; white-space: nowrap; }
+.raport .pozycje tr.razem td { font-weight: 700; border-top: 2px solid var(--line-strong); }
+.raport .dni tr.wyj td { background: var(--warn-soft); }
+.raport .stopka { margin-top: 12px; }
+@media print {
+  @page { size: A4; margin: 12mm; }
+  :root { --bg: #fff; --panel: #fff; --text: #000; --muted: #444; --line: #bbb; --line-strong: #666; --warn-soft: #f3f3f3; --warn: #000; }
+  body { background: #fff; font-size: 11px; }
+  header, .drop, .komunikaty, nav.zakladki, .pasek, dialog { display: none !important; }
+  main { padding: 0; max-width: none; }
+  .tabela { overflow: visible !important; border: 0 !important; }
+  .raporty { display: block; }
+  .raport { border: 0; padding: 0; max-width: none; break-after: page; }
+  .raport:last-child { break-after: auto; }
+  .raport table { font-size: 10.5px; }
+  .raport tr { break-inside: avoid; }
+}
 @media (max-width: 700px) { main { padding: 8px; } header h1 { width: 100%; } }
 </style>
 </head>

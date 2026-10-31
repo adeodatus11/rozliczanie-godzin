@@ -78,7 +78,7 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
 
   // Lekcje z planu bez tematu, poza tymi, na których nauczyciel był nieobecny, to lekcje odwołane (np. nieobecny
   // oddział). „Godzin do zliczenia” ma być tyle, ile odwołanych lekcji — nie więcej (art. 42 ust. 2cb).
-  const sprawdzPlan = plan && n.tryb === "tematy" && !brakDanych;
+  const sprawdzPlan = plan && n.tryb === "tematy" && !brakDanych && !(kal && !kal.czesciowy);
   const odwolane = sprawdzPlan ? plan.filter((p) => !tematy.includes(p) && !nieob?.lekcje.includes(p)) : [];
   const niepokryte = Math.max(0, odwolane.length - doSumy.length);
   const nadmiarDoZliczenia = sprawdzPlan ? Math.max(0, doSumy.length - odwolane.length) : 0;
