@@ -8,7 +8,7 @@ Cała aplikacja to jedna strona. Wszystko dzieje się w przeglądarce: wgrane pl
 
 1. **Na start, raz:**
    - wgraj dotychczasowy arkusz ROZLICZONE (przeniesie pensum, limity, uśrednienia, specjalistów) i sprawdź zakładkę „Nauczyciele”,
-   - w „Źródłach” pobierz aktualny plan lekcji z serwisu nauczyciela.
+   - w „Źródłach” pobierz aktualny plan lekcji z serwisu nauczyciela albo wgraj plan XML (eksport aSc lub `plan-nauczycieli-*.xml` w formacie `planNauczycieli`; data „od” z atrybutu `obowiazujeOd` albo z nazwy pliku).
 2. **Co tydzień:** wgraj eksport tematów (`ZestawienieTematowZrealizowanych`) i `ZbiorczeZestawienieZmian`. Ponowne wgranie tego samego okresu zastępuje stare dane.
 3. **Dni podświetlone na żółto** (do wyjaśnienia): kliknij dzień i zdecyduj. Możesz:
    - odliczyć dzień (pensum −1/5),
@@ -52,7 +52,7 @@ Każdy wpis można przestawić. Strona ma zablokowany dostęp do sieci (Content-
 |---|---|
 | `src/silnik.mjs` | reguły tygodnia i miesiąca: pensum −1/5 (1/4), limit przydziału, zaokrąglenie do wypłaty |
 | `src/rozliczenie.mjs` | analiza dnia (plan, tematy, zastępstwa, nieobecności, decyzje, podpowiedzi) i miesiąc nauczyciela |
-| `src/wejscie.mjs`, `src/zmiany.mjs` | odczyt eksportów VULCAN i planu aSc; kolumny mogące identyfikować uczniów są pomijane od razu |
+| `src/wejscie.mjs`, `src/zmiany.mjs` | odczyt eksportów VULCAN i planu XML (aSc, `planNauczycieli`); kolumny mogące identyfikować uczniów są pomijane od razu |
 | `src/konfiguracja.mjs`, `src/arkusz.mjs` | przeniesienie konfiguracji z dotychczasowego arkusza |
 | `src/stan.mjs`, `src/kalendarz.mjs`, `src/eksport.mjs` | plik rozliczenia, kalendarz 2026/27, eksport XLSX |
 | `src/xlsx.mjs`, `src/zip.mjs` | czytnik i zapis XLSX bez bibliotek (z repozytorium `zastepstwa`) |

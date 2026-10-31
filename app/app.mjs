@@ -1,7 +1,7 @@
 // Interfejs aplikacji. Wszystko dzieje się w przeglądarce: pliki są czytane
 // lokalnie, stan zapisuje się do pliku JSON wskazanego przez użytkownika.
 import { readWorkbook } from "../src/xlsx.mjs";
-import { lekcjeZTematow, realizacjaDzienna, planZXml, kluczOsoby, znajdzOsobe } from "../src/wejscie.mjs";
+import { lekcjeZTematow, realizacjaDzienna, planZXml, planOdZXml, kluczOsoby, znajdzOsobe } from "../src/wejscie.mjs";
 import { czytajZestawienie, rodzajSkoroszytu } from "../src/zmiany.mjs";
 import { konfiguracjaZArkusza } from "../src/konfiguracja.mjs";
 import { nowyStan, wczytajStan, zapiszStan, dodajTematy, dodajZestawienie, dodajPlan, ustawDecyzje } from "../src/stan.mjs";
@@ -58,11 +58,13 @@ async function wczytajPliki(pliki) {
         zmiany = false;
         komunikat(`Otwarto rozliczenie ${f.name}.`);
       } else if (/\.xml$/i.test(f.name)) {
-        const od = (f.name.match(/\d{4}-\d{2}-\d{2}/) ?? [])[0] ?? prompt(`Od kiedy obowiązuje plan z pliku ${f.name}? (RRRR-MM-DD)`, new Date().toISOString().slice(0, 10));
-        if (!od) continue;
         const bajty = new Uint8Array(await f.arrayBuffer());
         const kod = /encoding="windows-1250"/i.test(new TextDecoder("latin1").decode(bajty.slice(0, 200))) ? "windows-1250" : "utf-8";
-        const plan = planZXml(new TextDecoder(kod).decode(bajty), DOMParser);
+        const xml = new TextDecoder(kod).decode(bajty);
+        const od = planOdZXml(xml) ?? (f.name.match(/\d{4}-\d{2}-\d{2}/) ?? [])[0] ?? prompt(`Od kiedy obowiązuje plan z pliku ${f.name}? (RRRR-MM-DD)`, new Date().toISOString().slice(0, 10));
+        if (!od) continue;
+        const plan = planZXml(xml, DOMParser);
+        if (!Object.keys(plan).length) throw Error("w pliku nie znaleziono planu lekcji nauczycieli (oczekiwany eksport aSc albo „planNauczycieli”)");
         dodajPlan(stan, plan, od, f.name);
         zmiany = true;
         komunikat(`Plan lekcji od ${od}: ${Object.keys(plan).length} nauczycieli.`);

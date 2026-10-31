@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { DOMParser } from "@xmldom/xmldom";
 import { nowyStan, dodajPlan, dodajTematy, dodajZestawienie, ustawDecyzje, zapiszStan, wczytajStan } from "../src/stan.mjs";
 import { analizaDnia, rozliczWszystkich } from "../src/rozliczenie.mjs";
-import { realizacjaDzienna, lekcjeZTematow, znajdzOsobe, kluczOsoby } from "../src/wejscie.mjs";
+import { realizacjaDzienna, lekcjeZTematow, znajdzOsobe, kluczOsoby, planZXml, planOdZXml } from "../src/wejscie.mjs";
 import { eksportMiesiaca } from "../src/eksport.mjs";
 import { readWorkbook } from "../src/xlsx.mjs";
 
@@ -32,6 +32,25 @@ test("dopasowanie osób: inne zapisy tego samego nazwiska", () => {
   assert.equal(znajdzOsobe(kluczOsoby("Lis Maria"), klucze), "lis-kowalczyk maria");
   assert.equal(znajdzOsobe(kluczOsoby("Zając ks. Jan [ZJ]"), klucze), "zając jan");
   assert.equal(znajdzOsobe(kluczOsoby("Wróbel Adam"), klucze), null);
+});
+
+test("plan XML w formacie planNauczycieli: dni i pory, data obowiązywania", () => {
+  const xml = `<?xml version='1.0' encoding='utf-8'?>
+<planNauczycieli typ="wzorcowy" obowiazujeOd="2026-09-07">
+  <godziny><godzina nr="1" od="8:00" do="8:45" /></godziny>
+  <nauczyciel skrot="AK" imie="Anna" nazwisko="Kowalska">
+    <podsumowanie lekcjiTygodniowo="4" />
+    <lekcja dzien="Wtorek" godzina="2" przedmiot="Matematyka" oddzial="1A" grupa="gr1" />
+    <lekcja dzien="Wtorek" godzina="2" przedmiot="Matematyka" oddzial="1A" grupa="gr2" />
+    <lekcja dzien="Wtorek" godzina="1" przedmiot="Matematyka" oddzial="2B" />
+    <lekcja dzien="Środa" godzina="7" przedmiot="Fizyka" oddzial="3C" />
+    <dyzur dzien="Wtorek" przerwaPoLekcji="5" miejsce="parter" />
+  </nauczyciel>
+  <nauczyciel skrot="v1" imie="matematyka" nazwisko="vacat1"><podsumowanie lekcjiTygodniowo="0" /></nauczyciel>
+</planNauczycieli>`;
+  assert.deepEqual(planZXml(xml, DOMParser), { "kowalska anna": { 2: [1, 2], 3: [7] } });
+  assert.equal(planOdZXml(xml), "2026-09-07");
+  assert.equal(planOdZXml(`<timetable><teachers/></timetable>`), null);
 });
 
 test("dzień z brakującymi lekcjami jest do wyjaśnienia, IND i zastępstwo poza sumą", () => {
