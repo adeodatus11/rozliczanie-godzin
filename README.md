@@ -21,6 +21,7 @@ Cała aplikacja to jedna strona. Wszystko dzieje się w przeglądarce: wgrane pl
    Nagłówek dnia ustawia decyzję wszystkim naraz.
 4. **Zapisz** plik rozliczenia. Pozostałe osoby otwierają ten sam plik; zmiany zapisuje jedna osoba naraz.
 5. **Koniec miesiąca:** zakładka „Miesiąc” → „Pobierz XLSX” (zestawienie, tygodnie, dni, decyzje, uwagi).
+6. **Raport nauczyciela:** zakładka „Raport nauczyciela” (albo kliknięcie nazwiska w „Miesiącu”) → „Drukuj / zapisz jako PDF”. Dla jednej osoby albo dla wszystkich, każda od nowej strony: ile godzin do wypłaty i z jakiej podstawy (ponadwymiarowe z tygodni, doraźne zastępstwa z listą za kogo, IND, KKZ), tygodnie z pensum i odliczeniami, dni z decyzjami i uwagami.
 
 Zasady:
 - Do sumy dnia wchodzą lekcje z tematem i zastępstwa „Godzina do zliczenia”. Inne formy (np. „W ramach pensum”) trafiają do wyjaśnienia.
@@ -58,7 +59,7 @@ Każdy wpis można przestawić. Strona ma zablokowany dostęp do sieci (Content-
 | `src/rozliczenie.mjs` | analiza dnia (plan, tematy, zastępstwa, nieobecności, decyzje, podpowiedzi) i miesiąc nauczyciela |
 | `src/wejscie.mjs`, `src/zmiany.mjs` | odczyt eksportów VULCAN (tematy, zestawienie zmian, informacje o zastępstwach i przeniesieniach) i planu XML (aSc, `planNauczycieli`); kolumny mogące identyfikować uczniów są pomijane od razu |
 | `src/konfiguracja.mjs`, `src/arkusz.mjs` | przeniesienie konfiguracji z dotychczasowego arkusza |
-| `src/stan.mjs`, `src/kalendarz.mjs`, `src/eksport.mjs` | plik rozliczenia, kalendarz 2026/27, eksport XLSX |
+| `src/stan.mjs`, `src/kalendarz.mjs`, `src/eksport.mjs`, `src/raport.mjs` | plik rozliczenia, kalendarz 2026/27, eksport XLSX, raport nauczyciela |
 | `src/xlsx.mjs`, `src/zip.mjs` | czytnik i zapis XLSX bez bibliotek (z repozytorium `zastepstwa`) |
 | `src/frekwencja.mjs`, `src/tabele.mjs` | zaświadczenia: rozpoznanie tabeli frekwencji, rodzaje wpisów, rachunek okresu; odczyt CSV i tabel HTML |
 | `app/` | interfejsy; `build.mjs` składa każdy w jeden plik: `dist/index.html` i `dist/frekwencja.html` |

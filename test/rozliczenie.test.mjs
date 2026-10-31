@@ -8,6 +8,7 @@ import { czytajPrzeniesienia, czytajInformacjeOZastepstwach, rodzajSkoroszytu } 
 import { analizaDnia, rozliczWszystkich } from "../src/rozliczenie.mjs";
 import { realizacjaDzienna, lekcjeZTematow, znajdzOsobe, kluczOsoby, planZXml, planOdZXml } from "../src/wejscie.mjs";
 import { eksportMiesiaca } from "../src/eksport.mjs";
+import { raportNauczyciela } from "../src/raport.mjs";
 import { readWorkbook } from "../src/xlsx.mjs";
 
 const NAGLOWEK = ["Szkoła", "Okres klasyfikacyjny", "Dziennik", "Grupa", "Pseudonim Ucznia", "Przedmiot", "Nauczyciel", "Nauczyciel wspomagający", "Temat", "Data realizacji", "Numer pory lekcji", "Zastępstwo"];
@@ -241,5 +242,28 @@ test("„godzin do zliczenia” tyle, ile odwołanych lekcji z planu", () => {
   dodajZestawienie(s, zast([6]), "zestawienie");
   czw = analizaDnia(s, "kowalska anna", "2026-09-10");
   assert.match(czw.uwagi.join(" "), /bez tematu lekcje z planu: 3,4 \(odwołanych 2, „godzin do zliczenia” 1 — brakuje 1\)/);
+});
+
+test("raport nauczyciela: pozycje do wypłaty, tygodnie i lista doraźnych zastępstw", () => {
+  const s = stanTestowy();
+  dodajZestawienie(s, { okres: { od: "2026-09-07", do: "2026-09-11" }, nieobecnosci: {}, zastepstwa: { "kowalska anna": { "2026-09-08": [{ lekcja: 6, forma: "Dodatkowo płatne", zaKogo: "Nowak Jan", oddzial: "2B" }] } } }, "zestawienie");
+  const [w] = rozliczWszystkich(s, "2026-09");
+  const r = raportNauczyciela(s, w, "2026-09");
+  assert.equal(r.nazwa, "Kowalska Anna");
+  assert.deepEqual(r.pozycje.map((p) => p.co), ["Godziny ponadwymiarowe", "Doraźne zastępstwa", "Nauczanie indywidualne (IND)", "KKZ"]);
+  assert.equal(r.pozycje[0].godziny, w.doWyplaty);
+  assert.equal(r.pozycje[1].godziny, 1);
+  assert.equal(r.pozycje[2].godziny, 1, "IND w środę");
+  assert.equal(r.razem, w.razem);
+  assert.deepEqual(r.dorazne, [{ data: "2026-09-08", lekcja: 6, zaKogo: "Nowak Jan", oddzial: "2B", opis: null }]);
+  const t = r.tygodnie.find((x) => x.od === "2026-09-07");
+  assert.equal(t.do, "2026-09-11");
+  assert.equal(t.suma, 21);
+  // 1–4.09: wtorek 1.09 jest wolny, 2–4.09 to pierwszy tydzień
+  assert.ok(r.tygodnie[0].odliczone.some((d) => d.data === "2026-09-01"));
+  assert.ok(r.dni.every((d) => d.data.startsWith("2026-09")));
+  const pt = r.dni.find((d) => d.data === "2026-09-11");
+  assert.ok(pt.doWyjasnienia);
+  assert.equal(r.doWyjasnienia, w.doWyjasnienia);
 });
 

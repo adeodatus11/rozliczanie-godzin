@@ -8,6 +8,7 @@ import { nowyStan, wczytajStan, zapiszStan, dodajTematy, dodajZestawienie, dodaj
 import { rozliczWszystkich, analizaDnia } from "../src/rozliczenie.mjs";
 import { tygodnieMiesiaca, dodajDni, POWODY_ODLICZENIA, dzienTygodnia } from "../src/silnik.mjs";
 import { eksportMiesiaca, opisDecyzji } from "../src/eksport.mjs";
+import { raportNauczyciela } from "../src/raport.mjs";
 
 const $ = (s) => document.querySelector(s);
 const h = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -29,6 +30,7 @@ const ui = {
     return d >= "2026-09" && d <= "2027-08" ? d : "2026-09";
   })(),
   tydzien: null,
+  raport: "*", // klucz nauczyciela albo "*" — wszyscy
   szukaj: "",
   tylkoWyj: false,
   komunikaty: [],
@@ -176,7 +178,7 @@ function render() {
   const wyniki = Object.keys(stan.nauczyciele).length ? rozliczWszystkich(stan, ui.miesiac) : [];
   const tygodnie = tygodnieMiesiaca(ui.miesiac);
   if (!tygodnie.includes(ui.tydzien)) ui.tydzien = tygodnie.findLast((t) => stan.zrodla.some((z) => z.rodzaj === "tematy" && z.do >= t && z.od <= dodajDni(t, 4))) ?? tygodnie[0];
-  const zakladki = [["tydzien", "Tydzień"], ["miesiac", "Miesiąc"], ["nauczyciele", `Nauczyciele (${Object.keys(stan.nauczyciele).length})`], ["uwagi", `Uwagi (${dniZUwagami(wyniki).length})`], ["kalendarz", "Kalendarz"], ["zrodla", "Źródła"]];
+  const zakladki = [["tydzien", "Tydzień"], ["miesiac", "Miesiąc"], ["nauczyciele", `Nauczyciele (${Object.keys(stan.nauczyciele).length})`], ["uwagi", `Uwagi (${dniZUwagami(wyniki).length})`], ["raport", "Raport nauczyciela"], ["kalendarz", "Kalendarz"], ["zrodla", "Źródła"]];
   const miesiace = [];
   for (let d = new Date(Date.UTC(2026, 8, 1)); d < new Date(Date.UTC(2027, 8, 1)); d.setUTCMonth(d.getUTCMonth() + 1)) miesiace.push(d.toISOString().slice(0, 7));
   $("#app").innerHTML = `
@@ -189,14 +191,19 @@ function render() {
     <nav class="zakladki">${zakladki.map(([k, t]) => `<button type="button" data-widok="${k}" aria-current="${ui.widok === k}">${t}</button>`).join("")}</nav>
     <div class="pasek">
       <label>Miesiąc <select data-pole="miesiac">${miesiace.map((m) => `<option value="${m}" ${m === ui.miesiac ? "selected" : ""}>${nazwaMiesiaca(m)}</option>`).join("")}</select></label>
+      ${ui.widok === "raport" ? `<label>Nauczyciel <select data-pole="raport"><option value="*" ${ui.raport === "*" ? "selected" : ""}>wszyscy (każdy na osobnej stronie)</option>${Object.entries(stan.nauczyciele)
+        .sort((a, b) => a[1].nazwa.localeCompare(b[1].nazwa, "pl"))
+        .map(([k, n]) => `<option value="${h(k)}" ${k === ui.raport ? "selected" : ""}>${h(n.nazwa)}</option>`)
+        .join("")}</select></label>` : ""}
       ${ui.widok === "tydzien" ? `<label>Tydzień <select data-pole="tydzien">${tygodnie.map((t) => `<option value="${t}" ${t === ui.tydzien ? "selected" : ""}>${dm(t)}–${dm(dodajDni(t, 4))}</option>`).join("")}</select></label>` : ""}
       ${["tydzien", "miesiac", "uwagi"].includes(ui.widok) ? `<label>Szukaj <input type="search" data-pole="szukaj" value="${h(ui.szukaj)}" placeholder="nazwisko"></label>
       <label><input type="checkbox" data-pole="tylkoWyj" ${ui.tylkoWyj ? "checked" : ""}> tylko do wyjaśnienia</label>` : ""}
       <span class="spacer"></span>
       ${ui.widok === "tydzien" ? `<button type="button" data-akcja="podpowiedzi">Zastosuj podpowiedzi w tygodniu</button>` : ""}
+      ${ui.widok === "raport" ? `<button type="button" class="primary" data-akcja="drukuj" ${wyniki.length ? "" : "disabled"}>Drukuj / zapisz jako PDF</button>` : ""}
       ${ui.widok === "miesiac" ? `<button type="button" class="primary" data-akcja="xlsx" ${wyniki.length ? "" : "disabled"}>Pobierz XLSX za ${nazwaMiesiaca(ui.miesiac)}</button>` : ""}
     </div>
-    <div id="widok">${{ tydzien: widokTydzien, miesiac: widokMiesiac, nauczyciele: widokNauczyciele, uwagi: widokUwagi, kalendarz: widokKalendarz, zrodla: widokZrodla }[ui.widok](wyniki)}</div>`;
+    <div id="widok">${{ tydzien: widokTydzien, miesiac: widokMiesiac, nauczyciele: widokNauczyciele, uwagi: widokUwagi, raport: widokRaport, kalendarz: widokKalendarz, zrodla: widokZrodla }[ui.widok](wyniki)}</div>`;
 }
 
 function banery(wyniki) {
@@ -272,6 +279,45 @@ function widokUwagi(wyniki) {
     <p class="uwagaMala">Kliknij wiersz, żeby zobaczyć szczegóły dnia i zdecydować. Uwagi pochodzą z porównania planu, tematów i raportów zmian (zastępstwa, przeniesienia, nieobecności).</p>`;
 }
 
+const powodyOdliczen = (xs) => [...new Set(xs.map((x) => x.powod))].map((p) => `${odmiana(xs.filter((x) => x.powod === p).length, ["dzień", "dni", "dni"])}: ${p}`).join("; ");
+
+function htmlRaportu(r) {
+  const tab = (naglowki, wiersze, klasa = "") => `<table class="${klasa}"><thead><tr>${naglowki.map((x) => `<th>${x}</th>`).join("")}</tr></thead><tbody>${wiersze.join("")}</tbody></table>`;
+  const dniPracy = r.dniPracy.length < 5 ? ` (dni pracy: ${r.dniPracy.map((d) => DNI[d]).join(", ")})` : "";
+  return `<article class="raport">
+    <h2>${h(r.nazwa)}</h2>
+    <p class="podtytul">Rozliczenie godzin — ${nazwaMiesiaca(r.miesiac)} · ${h(TRYBY[r.tryb])} · pensum ${liczba(r.pensum)} h/tydz.${dniPracy} · przydział ponadwymiarowych do ${liczba(r.maks)} h/tydz.</p>
+    ${r.doWyjasnienia ? `<p class="ostrzezenie">Raport wstępny: ${odmiana(r.doWyjasnienia, ["dzień jest", "dni są", "dni jest"])} do wyjaśnienia (zob. „Dni”). Po decyzjach liczby mogą się zmienić.</p>` : ""}
+    <h3>Do wypłaty</h3>
+    ${tab(["Za co", "Podstawa", "Godziny"], [...r.pozycje.map((p) => `<tr><td>${h(p.co)}</td><td>${h(p.podstawa)}</td><td class="liczba">${liczba(p.godziny)}</td></tr>`), `<tr class="razem"><td>Razem</td><td></td><td class="liczba">${liczba(r.razem)}</td></tr>`], "pozycje")}
+    <h3>Tygodnie (godziny ponadwymiarowe)</h3>
+    ${tab(
+      ["Tydzień", "Zrealizowane", "Pensum", "Pensum obniżone o", "Nad pensum", "Limit", "Do rozliczenia"],
+      r.tygodnie.map((t) => `<tr><td>${dm(t.od)}–${dm(t.do)}</td><td class="liczba">${liczba(t.suma)}</td><td class="liczba">${liczba(t.pensum)}</td><td>${t.odliczone.length ? h(powodyOdliczen(t.odliczone)) : "—"}</td><td class="liczba">${liczba(t.nadPensum)}</td><td class="liczba">${liczba(t.maks)}</td><td class="liczba"><b>${liczba(t.doRozliczenia)}</b></td></tr>`),
+    )}
+    <p class="uwagaMala">Do rozliczenia = nadwyżka nad pensum, nie więcej niż przydzielony limit. Pensum obniża się o 1/5 (1/4) za każdy dzień z art. 35 ust. 3f KN.</p>
+    ${r.dorazne.length ? `<h3>Doraźne zastępstwa</h3>${tab(["Data", "Lekcja", "Za kogo", "Oddział"], r.dorazne.map((z) => (z.opis ? `<tr><td>${DNI[dzienTygodnia(z.data)]} ${dm(z.data)}</td><td colspan="3">${h(z.opis)}</td></tr>` : `<tr><td>${DNI[dzienTygodnia(z.data)]} ${dm(z.data)}</td><td>${z.lekcja}</td><td>${h(z.zaKogo ?? "")}</td><td>${h(z.oddzial ?? "")}</td></tr>`)))}` : ""}
+    <h3>Dni</h3>
+    ${tab(
+      ["Dzień", "Godziny", "Skład", "Decyzja / odliczenie", "Uwagi"],
+      r.dni.map((d) => {
+        const sklad = d.odliczenie ? "—" : r.tryb !== "tematy" ? h(TRYBY[r.tryb]) : [`lekcje z tematem ${d.lekcje}`, d.doZliczenia.length ? `do zliczenia ${d.doZliczenia.length} (lekcje ${d.doZliczenia.join(",")})` : "", d.dorazne ? `doraźne ${d.dorazne}` : "", d.ind ? `IND ${d.ind}` : "", d.kkz ? `KKZ ${d.kkz}` : ""].filter(Boolean).join(" · ");
+        const decyzja = d.decyzja ? `${opisDecyzji(d.decyzja)}${d.decyzja.uwaga ? ` — ${d.decyzja.uwaga}` : ""}` : d.odliczenie ?? "";
+        return `<tr class="${d.doWyjasnienia ? "wyj" : ""}"><td>${d.dzien} ${dm(d.data)}</td><td class="liczba">${d.odliczenie ? "—" : liczba(d.godziny)}</td><td>${sklad}</td><td>${h(decyzja)}</td><td>${d.uwagi.map(h).join("<br>")}${d.doWyjasnienia ? `${d.uwagi.length ? "<br>" : ""}<b>do wyjaśnienia</b>` : ""}</td></tr>`;
+      }),
+      "dni",
+    )}
+    <p class="uwagaMala stopka">Wygenerowano ${new Date().toLocaleString("pl-PL")} z eksportów dziennika VULCAN, planu lekcji i decyzji dyrekcji.</p>
+  </article>`;
+}
+
+function widokRaport(wyniki) {
+  if (!wyniki.length) return `<div class="pusto">Najpierw wgraj konfigurację nauczycieli i eksport tematów.</div>`;
+  const lista = ui.raport === "*" ? wyniki : wyniki.filter((w) => w.osoba === ui.raport);
+  if (!lista.length) return `<div class="pusto">Wybierz nauczyciela.</div>`;
+  return `<div class="raporty">${lista.map((w) => htmlRaportu(raportNauczyciela(stan, w, ui.miesiac))).join("")}</div>`;
+}
+
 function widokMiesiac(wyniki) {
   if (!wyniki.length) return `<div class="pusto">Brak danych.</div>`;
   const lista = wyniki.filter((w) => pasujeFiltr(w) && (!ui.tylkoWyj || w.doWyjasnienia));
@@ -281,7 +327,7 @@ function widokMiesiac(wyniki) {
     <thead><tr><th>Nauczyciel</th>${tyg.map((t) => `<th>od ${dm(t)}</th>`).join("")}<th class="sep">Suma</th><th>Ponadwym. do wypłaty</th><th class="sep">IND</th><th>KKZ</th><th>Doraźne</th><th class="sep">Razem</th><th>Do wyjaśnienia</th></tr></thead>
     <tbody>${lista
       .map(
-        (w) => `<tr><td class="nazwa">${h(stan.nauczyciele[w.osoba].nazwa)}</td>${w.tygodnie.map((t) => `<td>${liczba(t.doRozliczenia)}</td>`).join("")}
+        (w) => `<tr><td class="nazwa"><button type="button" class="link" data-raport="${h(w.osoba)}" title="Raport nauczyciela">${h(stan.nauczyciele[w.osoba].nazwa)}</button></td>${w.tygodnie.map((t) => `<td>${liczba(t.doRozliczenia)}</td>`).join("")}
       <td class="sep">${liczba(w.suma)}</td><td class="wynik">${w.doWyplaty}</td><td class="sep">${puste(w.ind)}</td><td>${puste(w.kkz)}</td><td>${puste(w.dorazne)}</td>
       <td class="sep wynik">${liczba(w.razem)}</td><td>${w.doWyjasnienia ? `<button type="button" class="link" data-dowyj="${h(w.osoba)}">${w.doWyjasnienia} dni</button>` : "—"}</td></tr>`,
       )
@@ -451,8 +497,13 @@ function zastosujPodpowiedzi() {
 
 // ——— zdarzenia ———
 document.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-akcja],[data-widok],[data-osoba],[data-dzienall],[data-usun],[data-usunkal],[data-dowyj]");
+  const t = e.target.closest("[data-akcja],[data-widok],[data-osoba],[data-dzienall],[data-usun],[data-usunkal],[data-dowyj],[data-raport]");
   if (!t) return;
+  if (t.dataset.raport) {
+    ui.widok = "raport";
+    ui.raport = t.dataset.raport;
+    return render();
+  }
   if (t.dataset.widok) {
     ui.widok = t.dataset.widok;
     return render();
@@ -499,6 +550,8 @@ document.addEventListener("click", async (e) => {
       return pobierzPlanZSerwisu();
     case "podpowiedzi":
       return zastosujPodpowiedzi();
+    case "drukuj":
+      return window.print();
     case "xlsx": {
       const bajty = await eksportMiesiaca(stan, ui.miesiac, rozliczWszystkich(stan, ui.miesiac));
       return pobierz(new Blob([bajty], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `rozliczenie-godzin-${ui.miesiac}.xlsx`);
