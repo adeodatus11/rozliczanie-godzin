@@ -3,7 +3,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DOMParser } from "@xmldom/xmldom";
-import { nowyStan, dodajPlan, dodajTematy, dodajZestawienie, ustawDecyzje, zapiszStan, wczytajStan } from "../src/stan.mjs";
+import { nowyStan, dodajPlan, dodajTematy, dodajZestawienie, dodajInformacje, ustawDecyzje, zapiszStan, wczytajStan } from "../src/stan.mjs";
+import { czytajPrzeniesienia, czytajInformacjeOZastepstwach, rodzajSkoroszytu } from "../src/zmiany.mjs";
 import { analizaDnia, rozliczWszystkich } from "../src/rozliczenie.mjs";
 import { realizacjaDzienna, lekcjeZTematow, znajdzOsobe, kluczOsoby, planZXml, planOdZXml } from "../src/wejscie.mjs";
 import { eksportMiesiaca } from "../src/eksport.mjs";
@@ -131,3 +132,69 @@ test("zastępstwo z formą płatności spoza listy jest do wyjaśnienia", () => 
   assert.ok(wt.doWyjasnienia);
   assert.match(wt.uwagi.join(), /nieznaną formą płatności: lekcja 6 „Inna forma”/);
 });
+
+const OPIS = [["Rok szkolny: 2026/2027"], ["Okres: 07.09.2026 (pon.) - 11.09.2026 (pt.)"]];
+
+test("przeniesione lekcje zmieniają plan dnia (InformacjeOPrzeniesieniach)", () => {
+  const arkusze = {
+    "Opis parametrów": OPIS,
+    Oddziały: [
+      ["Przeniesiono z", "Przeniesiono na", "Nauczyciel/wakat", "Nauczyciel/wakat wspomagający", "Oddział", "Przedmiot", "Uwagi"],
+      ["11.09.2026, 2, 08:50-09:35, sala: 4", "10.09.2026, 6, 12:25-13:10, sala: 4", "Kowalska Anna", "-", "1A", "Matematyka", ""],
+      ["11.09.2026, 3, 09:40-10:25, sala: 4", "11.09.2026, 1, 08:00-08:45, sala: 4", "Kowalska Anna", "-", "1A", "Matematyka", ""],
+      ["11.09.2026, 4, 10:35-11:20, sala: 4", "11.09.2026, 4, 10:35-11:20, sala: 9", "Kowalska Anna", "-", "1A", "Matematyka", ""], // tylko sala
+    ],
+  };
+  assert.equal(rodzajSkoroszytu(arkusze), "przeniesienia");
+  const p = czytajPrzeniesienia(arkusze);
+  assert.deepEqual(p.okres, { od: "2026-09-07", do: "2026-09-11" });
+  assert.deepEqual(p.przeniesienia, { "kowalska anna": { "2026-09-11": { z: [2, 3], na: [1] }, "2026-09-10": { z: [], na: [6] } } });
+
+  const s = stanTestowy();
+  dodajInformacje(s, "przeniesienia", p.okres, p.przeniesienia, "przeniesienia");
+  const pt = analizaDnia(s, "kowalska anna", "2026-09-11");
+  assert.deepEqual(pt.plan, [1, 4, 5], "lekcje 2 i 3 przeniesione z piątku");
+  assert.match(pt.uwagi.join(" "), /bez tematu lekcje z planu: 4,5/);
+  const czw = analizaDnia(s, "kowalska anna", "2026-09-10");
+  assert.deepEqual(czw.plan, [1, 2, 3, 4, 5, 6]);
+  assert.match(czw.uwagi.join(" "), /przeniesienia: na lekcje 6/);
+});
+
+test("informacje o zastępstwach: kontrola form płatności i zastępstwo za brak zestawienia", () => {
+  const arkusze = {
+    "Opis parametrów": OPIS,
+    Oddziały: [
+      ["Dzień", "Lekcja", "Nauczyciel/wakat", "Oddział", "Przedmiot", "Sala", "Zastępca", "Uwagi", "Forma płatności"],
+      ["08.09.2026", "6, 12:25-13:10", "Nowak Jan", "2B", "Fizyka", "5", "Kowalska Anna", "", "Godzina do zliczenia"],
+      ["08.09.2026", "7, 13:15-14:00", "Nowak Jan", "2B", "Fizyka", "5", "Uczniowie zwolnieni do domu", "", "-"],
+    ],
+    "Dzienniki zajeć innych": [["Dzień", "Godzina", "Nauczyciel", "Dziennik zajęć innych"], ["08.09.2026", "08:00-08:45", "Nowak Jan", "IN - Uczeń Zmyślony"]],
+  };
+  assert.equal(rodzajSkoroszytu(arkusze), "zastepstwa");
+  const z = czytajInformacjeOZastepstwach(arkusze);
+  assert.deepEqual(z.zastepstwa, { "kowalska anna": { "2026-09-08": [{ lekcja: 6, forma: "Godzina do zliczenia", skutek: null, zaKogo: "Nowak Jan", oddzial: "2B" }] } });
+  assert.ok(!JSON.stringify(z).includes("Uczeń"), "bez dzienników zajęć innych");
+
+  // bez zbiorczego zestawienia forma płatności pochodzi z informacji
+  const s = stanTestowy();
+  dodajInformacje(s, "zastepstwa", z.okres, z.zastepstwa, "informacje");
+  const wt = analizaDnia(s, "kowalska anna", "2026-09-08");
+  assert.equal(wt.godziny, 6);
+  assert.ok(!wt.doWyjasnienia);
+
+  // zestawienie ma pierwszeństwo, a różna forma w obu raportach jest do wyjaśnienia
+  dodajZestawienie(s, { okres: { od: "2026-09-07", do: "2026-09-11" }, nieobecnosci: {}, zastepstwa: { "kowalska anna": { "2026-09-08": [{ lekcja: 6, forma: "Bezpłatne" }] } } }, "zestawienie");
+  const wt2 = analizaDnia(s, "kowalska anna", "2026-09-08");
+  assert.equal(wt2.godziny, 5);
+  assert.ok(wt2.doWyjasnienia);
+  assert.match(wt2.uwagi.join(" "), /lekcja 6 — zestawienie „Bezpłatne”, informacje „Godzina do zliczenia”/);
+});
+
+test("stary plik rozliczenia bez „informacje” wczytuje się", () => {
+  const s = JSON.parse(zapiszStan(stanTestowy()));
+  delete s.informacje;
+  const w = wczytajStan(JSON.stringify(s));
+  assert.deepEqual(w.informacje, { zastepstwa: {}, przeniesienia: {} });
+  assert.equal(analizaDnia(w, "kowalska anna", "2026-09-08").godziny, 5);
+});
+

@@ -2,9 +2,9 @@
 // lokalnie, stan zapisuje się do pliku JSON wskazanego przez użytkownika.
 import { readWorkbook } from "../src/xlsx.mjs";
 import { lekcjeZTematow, realizacjaDzienna, planZXml, planOdZXml, kluczOsoby, znajdzOsobe } from "../src/wejscie.mjs";
-import { czytajZestawienie, rodzajSkoroszytu } from "../src/zmiany.mjs";
+import { czytajZestawienie, czytajInformacjeOZastepstwach, czytajPrzeniesienia, rodzajSkoroszytu } from "../src/zmiany.mjs";
 import { konfiguracjaZArkusza } from "../src/konfiguracja.mjs";
-import { nowyStan, wczytajStan, zapiszStan, dodajTematy, dodajZestawienie, dodajPlan, ustawDecyzje } from "../src/stan.mjs";
+import { nowyStan, wczytajStan, zapiszStan, dodajTematy, dodajZestawienie, dodajInformacje, dodajPlan, ustawDecyzje } from "../src/stan.mjs";
 import { rozliczWszystkich, analizaDnia } from "../src/rozliczenie.mjs";
 import { tygodnieMiesiaca, dodajDni, POWODY_ODLICZENIA, dzienTygodnia } from "../src/silnik.mjs";
 import { eksportMiesiaca, opisDecyzji } from "../src/eksport.mjs";
@@ -48,8 +48,11 @@ function komunikat(tekst, rodzaj = "") {
 }
 
 // ——— pliki ———
+// Kolejność przy wgraniu kilku plików naraz: najpierw plik rozliczenia, potem plan (potrzebny konfiguracji z arkusza).
+const KOLEJNOSC_PLIKOW = (f) => (/\.json$/i.test(f.name) ? 0 : /\.xml$/i.test(f.name) ? 1 : 2);
+
 async function wczytajPliki(pliki) {
-  for (const f of pliki) {
+  for (const f of [...pliki].sort((a, b) => KOLEJNOSC_PLIKOW(a) - KOLEJNOSC_PLIKOW(b))) {
     try {
       if (/\.json$/i.test(f.name)) {
         stan = wczytajStan(await f.text());
@@ -81,6 +84,16 @@ async function wczytajPliki(pliki) {
           const okres = dodajZestawienie(stan, czytajZestawienie(sheets), f.name);
           zmiany = true;
           komunikat(`Zestawienie zmian ${dm(okres.od)}–${dm(okres.do)}: powody nieobecności i formy płatności zastępstw.`);
+        } else if (rodzaj === "zastepstwa") {
+          const z = czytajInformacjeOZastepstwach(sheets);
+          const okres = dodajInformacje(stan, "zastepstwa", z.okres, z.zastepstwa, f.name);
+          zmiany = true;
+          komunikat(`Informacje o zastępstwach ${dm(okres.od)}–${dm(okres.do)}: kontrola form płatności ze zbiorczego zestawienia zmian.`);
+        } else if (rodzaj === "przeniesienia") {
+          const p = czytajPrzeniesienia(sheets);
+          const okres = dodajInformacje(stan, "przeniesienia", p.okres, p.przeniesienia, f.name);
+          zmiany = true;
+          komunikat(`Informacje o przeniesieniach ${dm(okres.od)}–${dm(okres.do)}: przeniesione lekcje zmieniają plan dnia.`);
         } else if (rodzaj === "arkusz") {
           const konf = konfiguracjaZArkusza(sheets, { plan: stan.plany.at(-1)?.plan ?? null });
           let nowi = 0;
@@ -92,7 +105,7 @@ async function wczytajPliki(pliki) {
             }
           zmiany = true;
           komunikat(`Konfiguracja z arkusza ${f.name}: ${nowi} nauczycieli. Sprawdź zakładkę „Nauczyciele”.`);
-        } else komunikat(`Nie rozpoznano pliku ${f.name}. Oczekiwane: eksport tematów, zestawienie zmian, plan XML albo dotychczasowy arkusz.`, "blad");
+        } else komunikat(`Nie rozpoznano pliku ${f.name}. Oczekiwane: eksport tematów, zestawienie zmian, informacje o zastępstwach lub przeniesieniach, plan XML albo arkusz PLANOWE/ROZLICZONE.`, "blad");
       }
     } catch (e) {
       komunikat(`${f.name}: ${e.message}`, "blad");
@@ -168,7 +181,7 @@ function render() {
   for (let d = new Date(Date.UTC(2026, 8, 1)); d < new Date(Date.UTC(2027, 8, 1)); d.setUTCMonth(d.getUTCMonth() + 1)) miesiace.push(d.toISOString().slice(0, 7));
   $("#app").innerHTML = `
     <div class="drop" id="drop">
-      <p><b>Wgraj pliki</b> (przeciągnij tutaj albo wybierz): eksport tematów <i>ZestawienieTematowZrealizowanych</i>, <i>ZbiorczeZestawienieZmian</i>, plan lekcji (XML) albo dotychczasowy arkusz ROZLICZONE (konfiguracja nauczycieli). Pliki są czytane tylko na tym komputerze.</p>
+      <p><b>Przeciągnij tutaj wszystkie pliki naraz</b> (albo wybierz) — rodzaj rozpozna się sam. Co tydzień: <i>ZestawienieTematowZrealizowanych</i>, <i>ZbiorczeZestawienieZmian</i>, <i>InformacjeOZastepstwach</i>, <i>InformacjeOPrzeniesieniach</i>. Na start: plan lekcji (XML) i arkusz PLANOWE (konfiguracja nauczycieli). Pliki są czytane tylko na tym komputerze.</p>
       <button type="button" data-akcja="wybierz">Wybierz pliki…</button>
     </div>
     ${ui.komunikaty.length ? `<ul class="komunikaty">${ui.komunikaty.slice(0, 3).map((k) => `<li class="${k.rodzaj}">${h(k.tekst)}</li>`).join("")}<li class="zamknij"><button type="button" class="link" data-akcja="zamknijKom">ukryj komunikaty</button></li></ul>` : ""}
@@ -189,7 +202,7 @@ function render() {
 function banery(wyniki) {
   const out = [];
   if (!Object.keys(stan.nauczyciele).length)
-    out.push(`Brak konfiguracji nauczycieli. Wgraj dotychczasowy arkusz ROZLICZONE (przeniesie pensum, limity, uśrednienia) albo dodaj osoby w zakładce „Nauczyciele”.`);
+    out.push(`Brak konfiguracji nauczycieli. Wgraj arkusz PLANOWE (przeniesie pensum, limity, uśrednienia) albo dodaj osoby w zakładce „Nauczyciele”.`);
   if (!stan.plany.length) out.push(`Brak planu lekcji — aplikacja nie pokaże, których lekcji brakuje. <button type="button" class="link" data-akcja="planSerwis">Pobierz aktualny plan z serwisu nauczyciela</button>`);
   const bezFormy = wyniki.reduce((s, w) => s + Object.values(w.dni).filter((a) => a.data.startsWith(ui.miesiac)).reduce((x, a) => x + a.bezFormy, 0), 0);
   if (bezFormy) out.push(`${odmiana(bezFormy, ["zastępstwo", "zastępstwa", "zastępstw"])} z tematów bez formy płatności, bo brak zbiorczego zestawienia zmian za te dni — nie są liczone. Wgraj <i>ZbiorczeZestawienieZmian</i>.`);
@@ -295,13 +308,15 @@ function widokKalendarz() {
     <p class="uwagaMala">Dzień wolny dla całej szkoły odlicza się wszystkim automatycznie (pensum −1/5). Dzień wolny tylko dla części klas (egzaminy, praktyki) trafia do wyjaśnienia: zdecydujesz osobno dla każdego nauczyciela.</p>`;
 }
 
+const RODZAJE_ZRODEL = { tematy: "tematy", zestawienie: "zestawienie zmian", zastepstwa: "informacje o zastępstwach", przeniesienia: "informacje o przeniesieniach" };
+
 function widokZrodla() {
   return `<h3>Wczytane pliki</h3>${
     stan.zrodla.length
       ? `<div class="tabela"><table class="konf"><thead><tr><th>Rodzaj</th><th>Plik</th><th>Zakres</th><th>Wczytano</th></tr></thead><tbody>${stan.zrodla
           .slice()
           .reverse()
-          .map((z) => `<tr><td>${h(z.rodzaj)}</td><td>${h(z.plik)}</td><td>${z.od ? `${z.od} – ${z.do}` : ""}</td><td>${h(z.wczytano.slice(0, 16).replace("T", " "))}</td></tr>`)
+          .map((z) => `<tr><td>${h(RODZAJE_ZRODEL[z.rodzaj] ?? z.rodzaj)}</td><td>${h(z.plik)}</td><td>${z.od ? `${z.od} – ${z.do}` : ""}</td><td>${h(z.wczytano.slice(0, 16).replace("T", " "))}</td></tr>`)
           .join("")}</tbody></table></div>`
       : `<p class="uwagaMala">Brak.</p>`
   }

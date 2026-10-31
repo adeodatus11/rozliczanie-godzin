@@ -31,23 +31,32 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
   const decyzja = stan.decyzje[osoba]?.[data] ?? null;
   const planOsob = planNaDzien(stan, data);
   const kPlan = planOsob ? dopasuj(pamiec, osoba, planOsob) : null;
-  const plan = kPlan ? (planOsob[kPlan][dt] ?? []) : planOsob ? [] : null;
+  const planBazowy = kPlan ? (planOsob[kPlan][dt] ?? []) : planOsob ? [] : null;
+  const przen = stan.informacje.przeniesienia[dopasuj(pamiec, osoba, stan.informacje.przeniesienia)]?.[data] ?? null;
+  // Plan dnia po przeniesieniach: lekcje przeniesione z tego dnia odpadają, przeniesione na ten dzień dochodzą.
+  const plan = planBazowy && przen ? zbior(planBazowy.filter((p) => !przen.z.includes(p)), przen.na) : planBazowy;
   const r = stan.realizacja[dopasuj(pamiec, osoba, stan.realizacja)]?.[data] ?? null;
   const nieob = stan.zestawienie.nieobecnosci[dopasuj(pamiec, osoba, stan.zestawienie.nieobecnosci)]?.[data] ?? null;
   const zast = stan.zestawienie.zastepstwa[dopasuj(pamiec, osoba, stan.zestawienie.zastepstwa)]?.[data] ?? [];
   const brakDanych = n.tryb === "tematy" && !stan.zrodla.some((z) => z.rodzaj === "tematy" && z.od <= data && z.do >= data);
-  const zestawienieWczytane = stan.zrodla.some((z) => z.rodzaj === "zestawienie" && z.od <= data && z.do >= data);
+  const wczytano = (rodzaj) => stan.zrodla.some((z) => z.rodzaj === rodzaj && z.od <= data && z.do >= data);
+  const zestawienieWczytane = wczytano("zestawienie") || wczytano("zastepstwa");
+  const zastInfo = stan.informacje.zastepstwa[dopasuj(pamiec, osoba, stan.informacje.zastepstwa)]?.[data] ?? [];
+  // Formy płatności: ze zbiorczego zestawienia, a za dni bez niego — z „Informacji o zastępstwach”.
+  const zastDnia = wczytano("zestawienie") ? zast : zastInfo;
 
   // Zastępstwa z tematów („Zastępstwo = Tak”) i ich forma płatności z zestawienia zmian.
   const zastepstwa = (r?.zastepstwa ?? []).map((lekcja) => {
-    const z = zast.find((x) => x.lekcja === lekcja);
+    const z = zastDnia.find((x) => x.lekcja === lekcja);
     return { lekcja, forma: z?.forma ?? null, zaKogo: z?.zaKogo ?? null, oddzial: z?.oddzial ?? null };
   });
+  // Ta sama lekcja z inną formą płatności w obu raportach VULCAN — do wyjaśnienia.
+  const rozneFormy = zastDnia === zast ? zast.flatMap((z) => zastInfo.filter((i) => i.lekcja === z.lekcja && i.forma !== z.forma).map((i) => ({ lekcja: z.lekcja, zestawienie: z.forma, informacje: i.forma }))) : [];
   const doSumy = zastepstwa.filter((z) => FORMY[z.forma] === "doSumy").map((z) => z.lekcja);
   const dorazneZast = zastepstwa.filter((z) => FORMY[z.forma] === "dorazne").length;
   const nieznane = zastepstwa.filter((z) => !z.forma);
   const obcaForma = zastepstwa.filter((z) => z.forma && !FORMY[z.forma]); // forma spoza FORMY nie jest liczona — trzeba zdecydować
-  const bezTematu = brakDanych ? [] : zast.filter((z) => FORMY[z.forma] !== "nic" && !(r?.zastepstwa ?? []).includes(z.lekcja) && !(r?.lekcje ?? []).includes(z.lekcja));
+  const bezTematu = brakDanych ? [] : zastDnia.filter((z) => FORMY[z.forma] !== "nic" && !(r?.zastepstwa ?? []).includes(z.lekcja) && !(r?.lekcje ?? []).includes(z.lekcja));
 
   const tematy = r?.lekcje ?? [];
   const godzinyAuto = zbior(tematy, doSumy).length;
@@ -65,6 +74,8 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
   if (nieznane.length && !zestawienieWczytane) uwagi.push(`zastępstwo — forma płatności nieznana (wgraj zestawienie zmian): lekcja ${nieznane.map((z) => z.lekcja).join(",")}`);
   if (obcaForma.length) uwagi.push(`zastępstwo z nieznaną formą płatności: ${obcaForma.map((z) => `lekcja ${z.lekcja} „${z.forma}”`).join(", ")}`);
   if (bezTematu.length) uwagi.push(`zastępstwo bez tematu w dzienniku: lekcja ${bezTematu.map((z) => z.lekcja).join(",")}`);
+  if (rozneFormy.length) uwagi.push(`różne formy płatności w raportach VULCAN: ${rozneFormy.map((z) => `lekcja ${z.lekcja} — zestawienie „${z.zestawienie}”, informacje „${z.informacje}”`).join("; ")}`);
+  if (przen && (przen.z.length || przen.na.length)) uwagi.push(`przeniesienia: ${[przen.z.length ? `z lekcji ${przen.z.join(",")}` : "", przen.na.length ? `na lekcje ${przen.na.join(",")}` : ""].filter(Boolean).join(", ")}`);
   if (kal?.czesciowy) uwagi.push(`kalendarz: ${kal.opis}`);
 
   // Przy uśrednieniu i stałym planie godziny liczą się same; decyzji wymaga tylko nieobecność, która może odliczyć dzień.
@@ -77,7 +88,7 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
   }
   const odliczonyKalendarzem = kal && !kal.czesciowy;
   const zatrudniony = (!n.od || data >= n.od) && (!n.do || data <= n.do);
-  const doWyjasnienia = !decyzja && !odliczonyKalendarzem && zatrudniony && (Boolean(nieobIstotna) || brakujace.length > 0 || (nieznane.length > 0 && zestawienieWczytane) || obcaForma.length > 0 || bezTematu.length > 0 || Boolean(kal?.czesciowy));
+  const doWyjasnienia = !decyzja && !odliczonyKalendarzem && zatrudniony && (Boolean(nieobIstotna) || brakujace.length > 0 || (nieznane.length > 0 && zestawienieWczytane) || obcaForma.length > 0 || rozneFormy.length > 0 || bezTematu.length > 0 || Boolean(kal?.czesciowy));
   return {
     data,
     plan,
