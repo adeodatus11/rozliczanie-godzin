@@ -70,6 +70,7 @@ export function eksportMiesiaca(stan, miesiac, wyniki) {
   const tyg = [["Nauczyciel", "Tydzień od", "Suma godzin", "Pensum", "Nad pensum", "Maks.", "Do rozliczenia"]];
   const dni = [["Nauczyciel", "Data", "Dzień", "Godziny", "Plan (lekcje)", "Tematy (lekcje)", "IND", "KKZ", "Doraźne", "Decyzja", "Uwaga do decyzji", "Uwagi automatyczne"]];
   const decyzje = [["Nauczyciel", "Data", "Decyzja", "Uwaga", "Zapisano"]];
+  const uwagi = [["Data", "Nauczyciel", "Godziny", "Status", "Uwagi automatyczne"]];
   for (const w of wyniki) {
     for (const t of w.tygodnie) tyg.push([naz(w.osoba), t.poniedzialek, t.suma, t.pensum, t.nadPensum, t.maks, t.doRozliczenia]);
     for (const t of w.tygodnie)
@@ -77,6 +78,7 @@ export function eksportMiesiaca(stan, miesiac, wyniki) {
         if (!d.data.startsWith(miesiac)) continue;
         const a = w.dni[d.data];
         const odl = d.odliczenie ? `odliczony: ${POWODY_ODLICZENIA[d.odliczenie] ?? d.odliczenie}` : "";
+        if (a.uwagi.length || a.doWyjasnienia) uwagi.push([d.data, naz(w.osoba), d.godziny, a.decyzja ? `decyzja: ${opisDecyzji(a.decyzja)}` : a.doWyjasnienia ? "do wyjaśnienia" : "informacja", a.uwagi.join("; ")]);
         dni.push([naz(w.osoba), d.data, DNI[new Date(d.data + "T12:00:00Z").getUTCDay() || 7] ?? "", d.godziny, a.plan ? a.plan.join(",") : "", a.tematy.join(","), a.ind || "", a.kkz || "", a.dorazne || "", a.decyzja ? opisDecyzji(a.decyzja) : odl, a.decyzja?.uwaga ?? "", a.uwagi.join("; ")]);
       }
     for (const [data, d] of Object.entries(stan.decyzje[w.osoba] ?? {}).sort())
@@ -87,5 +89,6 @@ export function eksportMiesiaca(stan, miesiac, wyniki) {
     Tygodnie: { wiersze: tyg, szerokosci: [30, 12, 10, 10, 10, 10, 12] },
     Dni: { wiersze: dni, szerokosci: [30, 12, 6, 9, 16, 16, 6, 6, 8, 40, 30, 60] },
     Decyzje: { wiersze: decyzje, szerokosci: [30, 12, 50, 40, 18] },
+    Uwagi: { wiersze: [uwagi[0], ...uwagi.slice(1).sort((x, y) => x[0].localeCompare(y[0]) || x[1].localeCompare(y[1], "pl"))], szerokosci: [12, 30, 9, 30, 100] },
   });
 }

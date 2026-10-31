@@ -109,7 +109,8 @@ test("plik stanu i eksport XLSX", async () => {
   assert.throws(() => wczytajStan('{"x":1}'));
   const bajty = await eksportMiesiaca(s, "2026-09", rozliczWszystkich(s, "2026-09"));
   const { sheets } = await readWorkbook(bajty, DOMParser);
-  assert.deepEqual(Object.keys(sheets), ["Zestawienie 2026-09", "Tygodnie", "Dni", "Decyzje"]);
+  assert.deepEqual(Object.keys(sheets), ["Zestawienie 2026-09", "Tygodnie", "Dni", "Decyzje", "Uwagi"]);
+  assert.deepEqual(sheets.Uwagi[0], ["Data", "Nauczyciel", "Godziny", "Status", "Uwagi automatyczne"]);
   assert.equal(sheets["Zestawienie 2026-09"][1][0], "Kowalska Anna");
   assert.match(sheets.Decyzje[1].join("|"), /zmiana w planie/);
 });
@@ -158,6 +159,9 @@ test("przeniesione lekcje zmieniają plan dnia (InformacjeOPrzeniesieniach)", ()
   const czw = analizaDnia(s, "kowalska anna", "2026-09-10");
   assert.deepEqual(czw.plan, [1, 2, 3, 4, 5, 6]);
   assert.match(czw.uwagi.join(" "), /przeniesienia: na lekcje 6/);
+  assert.match(czw.uwagi.join(" "), /bez tematu lekcje przeniesione na ten dzień: 6/);
+  assert.ok(!/bez tematu lekcje z planu/.test(czw.uwagi.join(" ")));
+  assert.ok(czw.doWyjasnienia);
 });
 
 test("informacje o zastępstwach: kontrola form płatności i zastępstwo za brak zestawienia", () => {
@@ -188,6 +192,11 @@ test("informacje o zastępstwach: kontrola form płatności i zastępstwo za bra
   assert.equal(wt2.godziny, 5);
   assert.ok(wt2.doWyjasnienia);
   assert.match(wt2.uwagi.join(" "), /lekcja 6 — zestawienie „Bezpłatne”, informacje „Godzina do zliczenia”/);
+
+  // dwie grupy w tej samej godzinie z różnymi formami — zgodne, jeśli oba raporty mają te same formy
+  s.zestawienie.zastepstwa["kowalska anna"]["2026-09-08"] = [{ lekcja: 6, forma: "Bezpłatne" }, { lekcja: 6, forma: "Godzina do zliczenia" }];
+  s.informacje.zastepstwa["kowalska anna"]["2026-09-08"].push({ lekcja: 6, forma: "Bezpłatne" });
+  assert.ok(!/różne formy/.test(analizaDnia(s, "kowalska anna", "2026-09-08").uwagi.join(" ")));
 });
 
 test("stary plik rozliczenia bez „informacje” wczytuje się", () => {
@@ -196,5 +205,16 @@ test("stary plik rozliczenia bez „informacje” wczytuje się", () => {
   const w = wczytajStan(JSON.stringify(s));
   assert.deepEqual(w.informacje, { zastepstwa: {}, przeniesienia: {} });
   assert.equal(analizaDnia(w, "kowalska anna", "2026-09-08").godziny, 5);
+});
+
+test("zastępstwo ze zmian bez tematu: płatne do wyjaśnienia, bezpłatne tylko w uwagach", () => {
+  const s = stanTestowy();
+  dodajZestawienie(s, { okres: { od: "2026-09-07", do: "2026-09-11" }, nieobecnosci: {}, zastepstwa: { "kowalska anna": { "2026-09-07": [{ lekcja: 8, forma: "Bezpłatne", zaKogo: "Nowak Jan", oddzial: "2B" }], "2026-09-09": [{ lekcja: 7, forma: "Dodatkowo płatne", zaKogo: "Nowak Jan", oddzial: "2B" }] } } }, "zestawienie");
+  const sr = analizaDnia(s, "kowalska anna", "2026-09-09");
+  assert.ok(sr.doWyjasnienia);
+  assert.match(sr.uwagi.join(" "), /zastępstwo bez tematu w dzienniku: lekcja 7 za Nowak Jan, 2B \(Dodatkowo płatne\)/);
+  const pn = analizaDnia(s, "kowalska anna", "2026-09-07");
+  assert.ok(!pn.doWyjasnienia);
+  assert.match(pn.uwagi.join(" "), /zastępstwo bezpłatne bez tematu w dzienniku \(nie zmienia rozliczenia\): lekcja 8/);
 });
 

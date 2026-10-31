@@ -14,6 +14,7 @@ export const FORMY = {
 const POWODY_ODLICZ = /lekarsk|urlop|opiek|krwi|okoliczno|sił[ay] wyższ|szkoleni/i;
 const POWODY_3E = /wycieczk|wyjazd służbowy|delegac|zawody|konkurs/i;
 
+const opisZast = (z) => `lekcja ${z.lekcja}${z.zaKogo ? ` za ${z.zaKogo}` : ""}${z.oddzial ? `, ${z.oddzial}` : ""} (${z.forma ?? "bez formy płatności"})`;
 const zbior = (...xs) => [...new Set(xs.flat())].sort((a, b) => a - b);
 
 /** Dopasowanie kluczy osób między źródłami (inne zapisy nazwisk), z pamięcią na czas jednego przeliczenia. */
@@ -50,13 +51,22 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
     const z = zastDnia.find((x) => x.lekcja === lekcja);
     return { lekcja, forma: z?.forma ?? null, zaKogo: z?.zaKogo ?? null, oddzial: z?.oddzial ?? null };
   });
-  // Ta sama lekcja z inną formą płatności w obu raportach VULCAN — do wyjaśnienia.
-  const rozneFormy = zastDnia === zast ? zast.flatMap((z) => zastInfo.filter((i) => i.lekcja === z.lekcja && i.forma !== z.forma).map((i) => ({ lekcja: z.lekcja, zestawienie: z.forma, informacje: i.forma }))) : [];
+  // Ta sama lekcja z innymi formami płatności w obu raportach VULCAN — do wyjaśnienia. Porównanie
+  // zbiorów form dla lekcji (zastępca może w tej samej godzinie mieć dwie grupy z różnymi formami).
+  const formyLekcji = (lista, lekcja) => lista.filter((x) => x.lekcja === lekcja).map((x) => x.forma).sort();
+  const rozneFormy = zastDnia === zast && zastInfo.length
+    ? zbior(zast.map((z) => z.lekcja), zastInfo.map((z) => z.lekcja))
+        .map((lekcja) => ({ lekcja, zestawienie: formyLekcji(zast, lekcja), informacje: formyLekcji(zastInfo, lekcja) }))
+        .filter((x) => x.zestawienie.join("|") !== x.informacje.join("|"))
+    : [];
   const doSumy = zastepstwa.filter((z) => FORMY[z.forma] === "doSumy").map((z) => z.lekcja);
   const dorazneZast = zastepstwa.filter((z) => FORMY[z.forma] === "dorazne").length;
   const nieznane = zastepstwa.filter((z) => !z.forma);
   const obcaForma = zastepstwa.filter((z) => z.forma && !FORMY[z.forma]); // forma spoza FORMY nie jest liczona — trzeba zdecydować
-  const bezTematu = brakDanych ? [] : zastDnia.filter((z) => FORMY[z.forma] !== "nic" && !(r?.zastepstwa ?? []).includes(z.lekcja) && !(r?.lekcje ?? []).includes(z.lekcja));
+  // Zastępstwa ze zmian, do których nie ma tematu. Bezpłatne (złączenie grup, biblioteka) nie zmieniają rozliczenia — tylko uwaga.
+  const zastBezTematu = !wczytano("tematy") ? [] : zastDnia.filter((z) => !(r?.zastepstwa ?? []).includes(z.lekcja) && !(r?.lekcje ?? []).includes(z.lekcja));
+  const bezTematu = zastBezTematu.filter((z) => FORMY[z.forma] !== "nic");
+  const bezTematuBezplatne = zastBezTematu.filter((z) => FORMY[z.forma] === "nic");
 
   const tematy = r?.lekcje ?? [];
   const godzinyAuto = zbior(tematy, doSumy).length;
@@ -67,14 +77,19 @@ export function analizaDnia(stan, osoba, data, pamiec = new Map()) {
   if (decyzja?.godziny != null) godziny = decyzja.godziny;
 
   const brakujace = plan && n.tryb === "tematy" && !brakDanych ? plan.filter((p) => !tematy.includes(p) && !doSumy.includes(p)) : [];
+  const brakujacePrzeniesione = brakujace.filter((p) => przen?.na.includes(p) && !planBazowy.includes(p));
+  const brakujaceZPlanu = brakujace.filter((p) => !brakujacePrzeniesione.includes(p));
   const uwagi = [];
   if (nieob) uwagi.push(`nieobecność: ${nieob.powody.join(", ")}${nieob.lekcje.length ? ` (lekcje ${nieob.lekcje.join(",")})` : ""}`);
-  if (brakujace.length) uwagi.push(`bez tematu lekcje z planu: ${brakujace.join(",")}`);
+  if (brakujaceZPlanu.length) uwagi.push(`bez tematu lekcje z planu: ${brakujaceZPlanu.join(",")}`);
+  if (brakujacePrzeniesione.length) uwagi.push(`bez tematu lekcje przeniesione na ten dzień: ${brakujacePrzeniesione.join(",")}`);
   if (nieznane.length && zestawienieWczytane) uwagi.push(`zastępstwo bez formy płatności w zestawieniu: lekcja ${nieznane.map((z) => z.lekcja).join(",")}`);
   if (nieznane.length && !zestawienieWczytane) uwagi.push(`zastępstwo — forma płatności nieznana (wgraj zestawienie zmian): lekcja ${nieznane.map((z) => z.lekcja).join(",")}`);
   if (obcaForma.length) uwagi.push(`zastępstwo z nieznaną formą płatności: ${obcaForma.map((z) => `lekcja ${z.lekcja} „${z.forma}”`).join(", ")}`);
-  if (bezTematu.length) uwagi.push(`zastępstwo bez tematu w dzienniku: lekcja ${bezTematu.map((z) => z.lekcja).join(",")}`);
-  if (rozneFormy.length) uwagi.push(`różne formy płatności w raportach VULCAN: ${rozneFormy.map((z) => `lekcja ${z.lekcja} — zestawienie „${z.zestawienie}”, informacje „${z.informacje}”`).join("; ")}`);
+  if (bezTematu.length) uwagi.push(`zastępstwo bez tematu w dzienniku: ${bezTematu.map(opisZast).join("; ")}`);
+  if (bezTematuBezplatne.length) uwagi.push(`zastępstwo bezpłatne bez tematu w dzienniku (nie zmienia rozliczenia): ${bezTematuBezplatne.map(opisZast).join("; ")}`);
+  const formy = (xs) => (xs.length ? xs.map((f) => `„${f}”`).join(" + ") : "brak");
+  if (rozneFormy.length) uwagi.push(`różne formy płatności w raportach VULCAN: ${rozneFormy.map((z) => `lekcja ${z.lekcja} — zestawienie ${formy(z.zestawienie)}, informacje ${formy(z.informacje)}`).join("; ")}`);
   if (przen && (przen.z.length || przen.na.length)) uwagi.push(`przeniesienia: ${[przen.z.length ? `z lekcji ${przen.z.join(",")}` : "", przen.na.length ? `na lekcje ${przen.na.join(",")}` : ""].filter(Boolean).join(", ")}`);
   if (kal?.czesciowy) uwagi.push(`kalendarz: ${kal.opis}`);
 

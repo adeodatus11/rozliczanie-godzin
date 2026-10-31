@@ -176,7 +176,7 @@ function render() {
   const wyniki = Object.keys(stan.nauczyciele).length ? rozliczWszystkich(stan, ui.miesiac) : [];
   const tygodnie = tygodnieMiesiaca(ui.miesiac);
   if (!tygodnie.includes(ui.tydzien)) ui.tydzien = tygodnie.findLast((t) => stan.zrodla.some((z) => z.rodzaj === "tematy" && z.do >= t && z.od <= dodajDni(t, 4))) ?? tygodnie[0];
-  const zakladki = [["tydzien", "Tydzień"], ["miesiac", "Miesiąc"], ["nauczyciele", `Nauczyciele (${Object.keys(stan.nauczyciele).length})`], ["kalendarz", "Kalendarz"], ["zrodla", "Źródła"]];
+  const zakladki = [["tydzien", "Tydzień"], ["miesiac", "Miesiąc"], ["nauczyciele", `Nauczyciele (${Object.keys(stan.nauczyciele).length})`], ["uwagi", `Uwagi (${dniZUwagami(wyniki).length})`], ["kalendarz", "Kalendarz"], ["zrodla", "Źródła"]];
   const miesiace = [];
   for (let d = new Date(Date.UTC(2026, 8, 1)); d < new Date(Date.UTC(2027, 8, 1)); d.setUTCMonth(d.getUTCMonth() + 1)) miesiace.push(d.toISOString().slice(0, 7));
   $("#app").innerHTML = `
@@ -190,13 +190,13 @@ function render() {
     <div class="pasek">
       <label>Miesiąc <select data-pole="miesiac">${miesiace.map((m) => `<option value="${m}" ${m === ui.miesiac ? "selected" : ""}>${nazwaMiesiaca(m)}</option>`).join("")}</select></label>
       ${ui.widok === "tydzien" ? `<label>Tydzień <select data-pole="tydzien">${tygodnie.map((t) => `<option value="${t}" ${t === ui.tydzien ? "selected" : ""}>${dm(t)}–${dm(dodajDni(t, 4))}</option>`).join("")}</select></label>` : ""}
-      ${["tydzien", "miesiac"].includes(ui.widok) ? `<label>Szukaj <input type="search" data-pole="szukaj" value="${h(ui.szukaj)}" placeholder="nazwisko"></label>
+      ${["tydzien", "miesiac", "uwagi"].includes(ui.widok) ? `<label>Szukaj <input type="search" data-pole="szukaj" value="${h(ui.szukaj)}" placeholder="nazwisko"></label>
       <label><input type="checkbox" data-pole="tylkoWyj" ${ui.tylkoWyj ? "checked" : ""}> tylko do wyjaśnienia</label>` : ""}
       <span class="spacer"></span>
       ${ui.widok === "tydzien" ? `<button type="button" data-akcja="podpowiedzi">Zastosuj podpowiedzi w tygodniu</button>` : ""}
       ${ui.widok === "miesiac" ? `<button type="button" class="primary" data-akcja="xlsx" ${wyniki.length ? "" : "disabled"}>Pobierz XLSX za ${nazwaMiesiaca(ui.miesiac)}</button>` : ""}
     </div>
-    <div id="widok">${{ tydzien: widokTydzien, miesiac: widokMiesiac, nauczyciele: widokNauczyciele, kalendarz: widokKalendarz, zrodla: widokZrodla }[ui.widok](wyniki)}</div>`;
+    <div id="widok">${{ tydzien: widokTydzien, miesiac: widokMiesiac, nauczyciele: widokNauczyciele, uwagi: widokUwagi, kalendarz: widokKalendarz, zrodla: widokZrodla }[ui.widok](wyniki)}</div>`;
 }
 
 function banery(wyniki) {
@@ -252,6 +252,24 @@ function widokTydzien(wyniki) {
       })
       .join("")}</tbody></table></div>
     <div class="legenda"><span class="l-wyj">do wyjaśnienia</span><span class="l-kor">Twoja decyzja</span><span class="l-odl">dzień odliczony (pensum −1/5)</span><span>✦ jest podpowiedź</span><span>? brak eksportu tematów za ten dzień</span><span>„plan N” — lekcji w planie, gdy różni się od tematów</span><span>Kliknij dzień, żeby zobaczyć szczegóły i zdecydować; nagłówek dnia — decyzja dla wszystkich.</span></div>`;
+}
+
+/** Dni miesiąca z uwagami automatycznymi albo do wyjaśnienia, w kolejności daty i nazwiska. */
+const dniZUwagami = (wyniki) =>
+  wyniki
+    .flatMap((w) => Object.values(w.dni).filter((a) => a.data.startsWith(ui.miesiac) && (a.uwagi.length || a.doWyjasnienia)).map((a) => ({ w, a })))
+    .sort((x, y) => x.a.data.localeCompare(y.a.data) || stan.nauczyciele[x.w.osoba].nazwa.localeCompare(stan.nauczyciele[y.w.osoba].nazwa, "pl"));
+
+function widokUwagi(wyniki) {
+  const lista = dniZUwagami(wyniki).filter(({ w, a }) => pasujeFiltr(w) && (!ui.tylkoWyj || a.doWyjasnienia));
+  if (!lista.length) return `<div class="pusto">Brak uwag w miesiącu ${nazwaMiesiaca(ui.miesiac)}.</div>`;
+  const status = (a) => (a.decyzja ? `<span class="status-kor">decyzja: ${h(opisDecyzji(a.decyzja))}</span>` : a.doWyjasnienia ? `<span class="status-wyj">do wyjaśnienia</span>` : "informacja");
+  return `<div class="tabela"><table class="konf listaUwag">
+    <thead><tr><th>Data</th><th>Nauczyciel</th><th>Godziny</th><th>Status</th><th>Uwagi</th></tr></thead>
+    <tbody>${lista
+      .map(({ w, a }) => `<tr data-osoba="${h(w.osoba)}" data-data="${a.data}" class="klik"><td>${DNI[dzienTygodnia(a.data)] ?? ""} ${dm(a.data)}</td><td>${h(stan.nauczyciele[w.osoba].nazwa)}</td><td>${liczba(a.godziny)}</td><td>${status(a)}</td><td>${a.uwagi.map(h).join("<br>") || "—"}</td></tr>`)
+      .join("")}</tbody></table></div>
+    <p class="uwagaMala">Kliknij wiersz, żeby zobaczyć szczegóły dnia i zdecydować. Uwagi pochodzą z porównania planu, tematów i raportów zmian (zastępstwa, przeniesienia, nieobecności).</p>`;
 }
 
 function widokMiesiac(wyniki) {

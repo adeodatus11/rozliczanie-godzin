@@ -12,14 +12,15 @@ Cała aplikacja to jedna strona. Wszystko dzieje się w przeglądarce: wgrane pl
 2. **Co tydzień:** przeciągnij na stronę naraz eksport tematów (`ZestawienieTematowZrealizowanych`), `ZbiorczeZestawienieZmian`, `InformacjeOZastepstwach` i `InformacjeOPrzeniesieniach`. Rodzaj pliku rozpoznaje się sam. Ponowne wgranie tego samego okresu zastępuje stare dane.
    - Przeniesione lekcje zmieniają plan dnia, więc lekcja przeniesiona na inną godzinę nie wychodzi jako „bez tematu”.
    - Formy płatności są brane ze zbiorczego zestawienia. Jeśli „Informacje o zastępstwach” podają dla tej samej lekcji inną formę, dzień trafia do wyjaśnienia; za dni bez zestawienia formy są brane z informacji.
-3. **Dni podświetlone na żółto** (do wyjaśnienia): kliknij dzień i zdecyduj. Możesz:
+   - Zakładka „Uwagi” zbiera wszystkie dni miesiąca z uwagami: lekcje z planu albo przeniesione na ten dzień bez tematu, zastępstwa ze zmian bez tematu w dzienniku (bezpłatne tylko informacyjnie), nieobecności, różne formy płatności. Te same uwagi są w arkuszu „Uwagi” w XLSX.
+3. **Dni podświetlone na żółto** (do wyjaśnienia): kliknij dzień (albo wiersz w „Uwagach”) i zdecyduj. Możesz:
    - odliczyć dzień (pensum −1/5),
    - liczyć lekcje z planu (art. 35 ust. 3e),
    - wpisać godziny ręcznie z uzasadnieniem.
 
    Nagłówek dnia ustawia decyzję wszystkim naraz.
 4. **Zapisz** plik rozliczenia. Pozostałe osoby otwierają ten sam plik; zmiany zapisuje jedna osoba naraz.
-5. **Koniec miesiąca:** zakładka „Miesiąc” → „Pobierz XLSX” (zestawienie, tygodnie, dni, decyzje).
+5. **Koniec miesiąca:** zakładka „Miesiąc” → „Pobierz XLSX” (zestawienie, tygodnie, dni, decyzje, uwagi).
 
 Zasady:
 - Do sumy dnia wchodzą lekcje z tematem i zastępstwa „Godzina do zliczenia”. Inne formy (np. „W ramach pensum”) trafiają do wyjaśnienia.
